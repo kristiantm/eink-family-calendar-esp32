@@ -35,3 +35,6 @@ Pin-setup:
 |BUSY | 25| 
 
 Make sure to adjust the configuration.h file with both a link to your google webapp (that fetches the calendar entries) and with your location and API key for open weather maps.
+
+For further guidance see my instructable on the project:<br>
+https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
