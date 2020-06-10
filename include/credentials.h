@@ -12,7 +12,6 @@ Otherwise the project will not work :)
 
 */
 
-
 #include <Fonts/FreeSerifBold9pt7b.h>
 #include <Fonts/FreeSerifBold12pt7b.h>
 #include <Fonts/FreeSerifBold18pt7b.h>
@@ -22,7 +21,6 @@ Otherwise the project will not work :)
 #include <Fonts/FreeSerif12pt7b.h>
 #include <Fonts/FreeSerif18pt7b.h>
 #include <Fonts/FreeSerif24pt7b.h>
-
 
 // Change to your WiFi credentials
 const char* ssid1     = "[YOUR_NETWORK_SSID]";      // For your network

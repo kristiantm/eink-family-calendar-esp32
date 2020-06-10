@@ -51,6 +51,7 @@ void deepSleepTill(int wakeHour);
 bool obtain_wx_data(const String& RequestType);
 bool DecodeWeather(WiFiClient& json, String Type);
 void drawWind();
+void readBattery();
 
 
 // Right now the calendarentries are limited to time and title
@@ -59,6 +60,8 @@ struct calendarEntries
   String calTime;
   String calTitle;
 };
+
+float batterylevel = -1; // Being set when reading battery level - used to avoid deep sleep when under 0%, and when drawing battery
 
 // Main flow of the program. It is designed to boot up, pull the info and refresh the screen, and then go back into deep sleep.
 void setup() {
@@ -82,6 +85,9 @@ void setup() {
 
   // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  // Read batterylevel and set batterylevel variable
+  readBattery();
 
   //Get and draw calendar on display
   display.setRotation(calendarOrientation);
@@ -132,6 +138,8 @@ bool displayCalendar()
   struct calendarEntries calEnt[calEntryCount];
 
   indexFrom = outputStr.lastIndexOf("\n") + 1;
+
+
 
   // Fill calendarEntries with entries from the get-request
   while (indexTo>=0 && line<calEntryCount) {
@@ -226,6 +234,16 @@ bool displayCalendar()
       drawOWMIcon(weatherIcon);
     }
 
+    // Draw battery level
+    if(batterylevel >= 0) {
+      int batX = weatherPosX+50;
+      int batY = weatherPosY + 130;
+
+      display.drawRect(batX + 15, batY - 12, 19, 10, GxEPD_BLACK);
+      display.fillRect(batX + 34, batY - 10, 2, 5, GxEPD_BLACK);
+      display.fillRect(batX + 17, batY - 10, 15 * batterylevel / 100.0, 6, GxEPD_BLACK);
+    }
+
 
     // Set position for the first calendar entry
     y = y + 45;
@@ -298,6 +316,11 @@ String getURL(String url) {
 // Sleep until set wake-hour
 void deepSleepTill(int wakeHour)
 {
+  // If battery is too low (see getBattery code), enter deepSleep and do not wake up
+  if(batterylevel == 0) {
+    esp_deep_sleep_start();
+  }
+
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     Serial.println("Failed to obtain time");
@@ -522,3 +545,27 @@ void drawWind() {
 
 }
 
+
+void readBattery() {
+  uint8_t percentage = 100;
+  //Batterytest
+  
+  float R1 = 30;
+  float R2 = 100;
+
+  float voltage = analogRead(34) / 4096.0 * (1/(R1/(R1+R2)));
+  if (voltage > 1 ) { // Only display if there is a valid reading
+    Serial.println("Voltage = " + String(voltage));
+
+    if (voltage >= 4.10) percentage = 100;
+    else if (voltage <= 3.9) percentage = 75;
+    else if (voltage >= 3.7) percentage = 50;
+    else if (voltage >= 3.6) percentage = 25;
+    else if (voltage <= 3.50) percentage = 0;
+    batterylevel = percentage;
+  }
+
+  
+
+
+}
