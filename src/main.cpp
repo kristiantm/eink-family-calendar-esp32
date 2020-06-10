@@ -548,12 +548,16 @@ void drawWind() {
 
 void readBattery() {
   uint8_t percentage = 100;
-  //Batterytest
-  
+
+  //Adjust the pin below depending on what pin you measure your battery voltage on. 
+  //On LOLIN D32 boards this is build into pin 35 - for other ESP32 boards, you have to manually insert a voltage divider between the battery and an analogue pin
+  uint8_t batteryPin = 34;
+
+  // Set OHM values based on the resistors used in your voltage divider http://www.ohmslawcalculator.com/voltage-divider-calculator  
   float R1 = 30;
   float R2 = 100;
 
-  float voltage = analogRead(34) / 4096.0 * (1/(R1/(R1+R2)));
+  float voltage = analogRead(batteryPin) / 4096.0 * (1/(R1/(R1+R2)));
   if (voltage > 1 ) { // Only display if there is a valid reading
     Serial.println("Voltage = " + String(voltage));
 
