@@ -1,7 +1,7 @@
 /* 
 
 This is the E-Ink Family Calendar project by Argion /  Kristian Thorsted Madsen.
-[LINK TO INSTRUCTABLE]
+https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
 
 The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display. 
 Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
@@ -13,30 +13,53 @@ Make sure you configure the credentials.h file before compiling, and have fun.
 
 #include <Arduino.h>
 #define ENABLE_GxEPD2_GFX 0
-#include <GxEPD2_3C.h>
+//#include <GxEPD2_3C.h>
+#include <GxEPD2_BW.h>
 
 #include <credentials.h>
 
 
-#include <WiFi.h>
-#include <WifiClientSecure.h>
 #include "time.h"
 #include "timeheaders.h"
 #include <string>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>              // https://github.com/bblanchon/ArduinoJson needs version v6 or above
 #include "Wire.h"
 
-
-
 #include <iconsOWM.c>
+
+
+#include <WiFi.h>
+#include <WebServer.h>
+
+#include <WifiClientSecure.h>
+#include <HTTPClient.h>
+
+
+#include <SPIFFS.h>
+using WebServerClass = WebServer;
+#include <FS.h>
+#include <AutoConnect.h>
+#include <webconfig.h>
+
+
+WebServerClass  server;
+AutoConnect portal(server);
+AutoConnectConfig config;
+AutoConnectAux  elementsAux;
+AutoConnectAux  saveAux;
+
+int portalTimeoutTime = 60 * 5; // Seconds to wait before showing calendar
 
 void drawOWMIcon(String icon);
 void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height);
 
 
 // ***** for mapping of Waveshare ESP32 Driver Board *****
-GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
+//GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
+//GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4));
+GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
+//GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=5*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4)); // GDEW075T7 800x480
+
 int    wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, start_time;
 
 WiFiClientSecure client; // wifi client object
@@ -52,7 +75,12 @@ bool obtain_wx_data(const String& RequestType);
 bool DecodeWeather(WiFiClient& json, String Type);
 void drawWind();
 void readBattery();
+bool startWifiServer();
+bool loadConfig();
+bool internetWorks();
 
+// Uncomment if demomode
+const bool DEMOMODE = false;
 
 // Right now the calendarentries are limited to time and title
 struct calendarEntries
@@ -74,39 +102,170 @@ void setup() {
   display.init(115200); // uses standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
   SPI.end(); // release standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
   SPI.begin(13, 12, 14, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
+  //SPI.begin(18, 19, 23, 5); // 
 
-  // Connect for WIFI
-  WiFi.begin(ssid1, password1);
-  while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
+  startWifiServer();
+
+  bool isConfigured = false;
+  bool isWebConnected = false;
+
+
+  isConfigured = loadConfig();
+  if(isConfigured) Serial.println("Configuration loaded"); else Serial.println("Configuration not loaded");
+  isWebConnected = internetWorks();
+  if(isWebConnected) Serial.println("Internet connected"); else Serial.println("Internet not connected");
+
+  if((isConfigured) && (isWebConnected)) {
+
+    Serial.println("Configuration exist and internet connection works - displaying calendar");
+
+    // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+    // Read batterylevel and set batterylevel variable
+    readBattery();
+
+    //Get and draw calendar on display
+    display.setRotation(calendarOrientation);
+    displayCalendar(); // Main flow for drawing calendar
+
+    delay(1000);
+
+    // Turn off display before deep sleep
+    display.powerOff();
   }
-  Serial.println(" CONNECTED");
 
-  // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  if((esp_sleep_get_wakeup_cause() <= 5)) {
 
-  // Read batterylevel and set batterylevel variable
-  readBattery();
+    // If the calendar is not waking from sleep, spend 5 minutes displaying the server
+    Serial.println("Booting for the first time - showing web-portal in " + String(portalTimeoutTime) + " seconds");
+    
+    struct timeval current_time;
+    gettimeofday(&current_time, NULL);
+    int target_time = current_time.tv_sec + portalTimeoutTime;
 
-  //Get and draw calendar on display
-  display.setRotation(calendarOrientation);
-  displayCalendar(); // Main flow for drawing calendar
+    while(current_time.tv_sec < target_time) {
+      portal.handleClient();
+      gettimeofday(&current_time, NULL);
 
-  delay(1000);
+    }
+  }
 
-  // Turn off display before deep sleep
-  display.powerOff();
-  
   // Deep-sleeping unitl the selected wake-hour - default 5 in the morning
   Serial.println("Refresh done - sleeping");
   deepSleepTill(HOUR_TO_WAKE);
 
+
 }
 
 // Not used, as we boot up from scratch every time we wake from deep sleep
-void loop() {
+  void loop() {
+
+  }
+
+bool loadConfig(){
+      // Use the AutoConnect::where function to identify the referer.
+
+      bool successfull = false;
+
+      SPIFFS.begin();
+      File param = SPIFFS.open(PARAM_FILE, "r");
+      if (param) {
+        successfull = elementsAux.loadElement(param, { "text", "check", "input", "radio", "select" } );
+        param.close();
+      }
+
+      SPIFFS.end();
+
+      if(successfull) {
+
+        OWMapikey = elementsAux.getElement("check")->value;
+        googleAPI = elementsAux.getElement("input")->value;
+        Lattitude = elementsAux.getElement("radio")->value;
+        Longitude = elementsAux.getElement("select")->value;
+        calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
+
+        Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
+
+      }
+      
+      return successfull;
 }
+
+bool internetWorks() {
+  client.stop();
+  return client.connect("script.google.com", 443);
+}
+
+bool startWifiServer(){
+      // Responder of root page handled directly from WebServer class.
+  server.on("/", []() {
+    String content = "Place the root page with the sketch application.&ensp;";
+    content += AUTOCONNECT_LINK(COG_24);
+    server.send(200, "text/html", content);
+  });
+
+  // Load a custom web page described in JSON as PAGE_ELEMENT and
+  // register a handler. This handler will be invoked from
+  // AutoConnectSubmit named the Load defined on the same page.
+  elementsAux.load(FPSTR(PAGE_ELEMENTS));
+  elementsAux.on([] (AutoConnectAux& aux, PageArgument& arg) {
+    if (portal.where() == "/elements") {
+      // Use the AutoConnect::where function to identify the referer.
+      // Since this handler only supports AutoConnectSubmit called the
+      // Load, it uses the uri of the custom web page placed to
+      // determine whether the Load was called me or not.
+      SPIFFS.begin();
+      File param = SPIFFS.open(PARAM_FILE, "r");
+      if (param) {
+        aux.loadElement(param, { "text", "check", "input", "radio", "select" } );
+        param.close();
+      }
+      SPIFFS.end();
+    }
+    return String();
+  });
+
+  saveAux.load(FPSTR(PAGE_SAVE));
+  saveAux.on([] (AutoConnectAux& aux, PageArgument& arg) {
+    // You can validate input values ​​before saving with
+    // AutoConnectInput::isValid function.
+    // Verification is using performed regular expression set in the
+    // pattern attribute in advance.
+    AutoConnectInput& input = elementsAux["input"].as<AutoConnectInput>();
+    aux["validated"].value = input.isValid() ? String() : String("Input data pattern missmatched.");
+
+    // The following line sets only the value, but it is HTMLified as
+    // formatted text using the format attribute.
+    aux["caption"].value = PARAM_FILE;
+
+    SPIFFS.begin(true);
+    File param = SPIFFS.open(PARAM_FILE, "w");
+    if (param) {
+      // Save as a loadable set for parameters.
+      elementsAux.saveElement(param, { "text", "check", "input", "radio", "select" });
+      param.close();
+      // Read the saved elements again to display.
+      param = SPIFFS.open(PARAM_FILE, "r");
+      aux["echo"].value = param.readString();
+      param.close();
+    }
+    else {
+      aux["echo"].value = "SPIFFS failed to open.";
+    }
+    SPIFFS.end();
+    return String();
+  });
+
+  portal.join({ elementsAux, saveAux });
+  config.ticker = true;
+  portal.config(config);
+  portal.begin();
+
+  return true;
+
+}
+
 
 // Main display code - assumes that the display has been initialized
 bool displayCalendar()
@@ -221,8 +380,6 @@ bool displayCalendar()
     display.setFont(fontEntryTime);
     display.print(weekday[timeinfo.tm_wday]);
 
-
-
     // Print morning greeting (Happy X-day)
     display.setCursor(x, y);
     display.setTextColor(GxEPD_BLACK);
@@ -271,6 +428,7 @@ bool displayCalendar()
   client.stop();
   return true;
 }
+
 
 // Generic code for getting requests - doing it a bit pure, as most libraries I tried could not handle the redirects from google
 bool getRequest(char *urlServer, String urlRequest) {
@@ -551,7 +709,7 @@ void readBattery() {
 
   //Adjust the pin below depending on what pin you measure your battery voltage on. 
   //On LOLIN D32 boards this is build into pin 35 - for other ESP32 boards, you have to manually insert a voltage divider between the battery and an analogue pin
-  uint8_t batteryPin = 34;
+  uint8_t batteryPin = 34; //FIXME
 
   // Set OHM values based on the resistors used in your voltage divider http://www.ohmslawcalculator.com/voltage-divider-calculator  
   float R1 = 30;

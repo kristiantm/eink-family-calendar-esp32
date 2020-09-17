@@ -22,25 +22,23 @@ Otherwise the project will not work :)
 #include <Fonts/FreeSerif18pt7b.h>
 #include <Fonts/FreeSerif24pt7b.h>
 
-// Change to your WiFi credentials
-const char* ssid1     = "[YOUR_NETWORK_SSID]";      // For your network
-const char* password1 = "[YOUR_NETWORK_KEY]";  // For your network
+/* 
+    The following will be configured using the web-portal
 
-// Use your own API key by signing up for a free developer account at https://openweathermap.org/
-String OWMapikey       = "[YOUR OPEN WEATHERMAPS API]";                   // See: https://openweathermap.org/
+    Use your own API key by signing up for a free developer account at https://openweathermap.org/
+    Create a script on scripts.google.com to fetch your calendarrequests (as per guide on instructable)
+    Find the lattitude and logitude for your location using google maps
+*/
+String OWMapikey       = "Write OWM api here";                   // See: https://openweathermap.org/ //FIXME
+String googleAPI = "Write Google script api here";
+String Lattitude          = "Lattitude";                      // Your lattitude - use google maps //FIXME
+String Longitude          = "Longitude";                      // Your longitude - use google maps //FIXME
+
 char OWMserver[] = "api.openweathermap.org";
 
 //Set your location according to OWM locations
-String City          = "Copenhagen";                      // Your home city See: http://bulk.openweathermap.org/sample/
-String Lattitude          = "[YOUR_LATTITUDE]";                      // Your lattitude - use google maps
-String Longitude          = "[YOUR_LONGITUDE]";                      // Your longitude - use google maps
-String Country       = "Denmark";                            // Your country  
 String Language      = "EN";                            // NOTE: Only the weather description (not used) is translated by OWM
-                                                        // Arabic (AR) Czech (CZ) English (EN) Greek (EL) Persian(Farsi) (FA) Galician (GL) Hungarian (HU) Japanese (JA)
-                                                        // Korean (KR) Latvian (LA) Lithuanian (LT) Macedonian (MK) Slovak (SK) Slovenian (SL) Vietnamese (VI)
-String Hemisphere    = "north";                         // or "south"  
 String Units         = "M";                             // Use 'M' for Metric or I for Imperial 
-const char* Timezone = "CET-1CEST,M3.5.0,M10.5.0/3";  // Choose your time zone from: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv 
 
 // Get time
 const char* ntpServer = "pool.ntp.org";
@@ -49,7 +47,7 @@ const int   daylightOffset_sec = 3600;
 
 // Get calendar
 char calendarServer[] = "script.google.com"; 
-String calendarRequest = "https://script.google.com/macros/s/[YOUR_UNIQUE_ID]/exec"; // Write the path for your google script to fetch calendar events
+String calendarRequest = "/exec"; // This will eventually be an URL in the form of "https://script.google.com/macros/s/" + googleAPI + "/exec"
 
 // Set the number of entries to show - default is 10 - note that spacing between entries can push some out of the viewable area
 const int calEntryCount = 10;
