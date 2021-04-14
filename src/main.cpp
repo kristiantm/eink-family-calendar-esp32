@@ -13,8 +13,8 @@ Make sure you configure the credentials.h file before compiling, and have fun.
 
 #include <Arduino.h>
 #define ENABLE_GxEPD2_GFX 0
-//#include <GxEPD2_3C.h>
-#include <GxEPD2_BW.h>
+#include <GxEPD2_3C.h>
+//#include <GxEPD2_BW.h>
 
 #include <credentials.h>
 
@@ -27,12 +27,10 @@ Make sure you configure the credentials.h file before compiling, and have fun.
 
 #include <iconsOWM.c>
 
-
 #include <WiFi.h>
 #include <WebServer.h>
-
 #include <WifiClientSecure.h>
-#include <HTTPClient.h>
+#include <HTTPClient.h> // Needs to be from the ESP32 platform version 3.2.0 or later, as the previous has problems with http-redirect (google script)
 
 
 #include <SPIFFS.h>
@@ -54,21 +52,20 @@ void drawOWMIcon(String icon);
 void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height);
 
 
-// ***** for mapping of Waveshare ESP32 Driver Board *****
-//GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
+/* Mapping of Waveshare ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
+GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
+//GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
+
+/* Mapping of Generic ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
 //GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4));
-GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
 //GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=5*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4)); // GDEW075T7 800x480
 
 int    wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, start_time;
 
-WiFiClientSecure client; // wifi client object
 HTTPClient http;
 
 
 bool displayCalendar();
-String getURL(String url);
-bool getRequest(char *urlServer, String urlRequest);
 void displayCalendarEntry(String eventTime, String eventName, String eventDesc);
 void deepSleepTill(int wakeHour);
 bool obtain_wx_data(const String& RequestType);
@@ -104,17 +101,25 @@ void setup() {
   SPI.begin(13, 12, 14, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
   //SPI.begin(18, 19, 23, 5); // 
 
+  WiFi.setHostname("FamilyCalendar");
   startWifiServer();
 
   bool isConfigured = false;
   bool isWebConnected = false;
 
-
   isConfigured = loadConfig();
   if(isConfigured) Serial.println("Configuration loaded"); else Serial.println("Configuration not loaded");
-  isWebConnected = internetWorks();
-  if(isWebConnected) Serial.println("Internet connected"); else Serial.println("Internet not connected");
 
+  while(WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+  }
+
+  isWebConnected = internetWorks();
+
+
+  if(isWebConnected) Serial.println("Internet connected"); else Serial.println("Internet not connected");
+  
   if((isConfigured) && (isWebConnected)) {
 
     Serial.println("Configuration exist and internet connection works - displaying calendar");
@@ -139,13 +144,15 @@ void setup() {
 
     // If the calendar is not waking from sleep, spend 5 minutes displaying the server
     Serial.println("Booting for the first time - showing web-portal in " + String(portalTimeoutTime) + " seconds");
+    Serial.println("Connected on IP " + String(WiFi.localIP().toString()));
+    
     
     struct timeval current_time;
     gettimeofday(&current_time, NULL);
     int target_time = current_time.tv_sec + portalTimeoutTime;
 
     while(current_time.tv_sec < target_time) {
-      portal.handleClient();
+        portal.handleClient();
       gettimeofday(&current_time, NULL);
 
     }
@@ -153,6 +160,7 @@ void setup() {
 
   // Deep-sleeping unitl the selected wake-hour - default 5 in the morning
   Serial.println("Refresh done - sleeping");
+
   deepSleepTill(HOUR_TO_WAKE);
 
 
@@ -193,14 +201,20 @@ bool loadConfig(){
 }
 
 bool internetWorks() {
-  client.stop();
-  return client.connect("script.google.com", 443);
+  HTTPClient http;
+  if (http.begin("script.google.com", 443)) {
+    http.end();
+    return true;
+  } else {
+    http.end();
+    return false;
+  }
 }
 
 bool startWifiServer(){
-      // Responder of root page handled directly from WebServer class.
+  // Responder of root page handled directly from WebServer class.
   server.on("/", []() {
-    String content = "Place the root page with the sketch application.&ensp;";
+    String content = "<p>Welcome to the ESP32 Family Calendar.</p><p>In the menu you can: <br>1) Connect the calendar to your local wifi under \"Configure new AP\", <br>2) Configure your calendar under \"Calendar\" linking to your google script, your open weather API etc. </p><p>I hope you enjoy the calendar. Feel free to leave a comment on github or instructables. </p><p>Best regards, <br>Kristian</p>.&ensp;";
     content += AUTOCONNECT_LINK(COG_24);
     server.send(200, "text/html", content);
   });
@@ -273,18 +287,20 @@ bool displayCalendar()
 
   // Getting calendar from your published google script
   Serial.println("Getting calendar");
-  getRequest(calendarServer, calendarRequest);
+  Serial.println(calendarRequest);
 
-  String outputStr = client.readString();
+  http.end();
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(calendarRequest)) {
+    Serial.println("Cannot connect to google script");
+    return false;
+  } 
 
-  // If redirected - then follow redirect - google always redirect to a temporary URL by default. Note that this at times fail resulting in an empty display. Consider detecting this and retrying.
-  if(outputStr.indexOf("Location:") > 0) {
-    String newURL = getURL(outputStr);
-
-    getRequest(calendarServer, newURL);
-
-    outputStr = client.readString();
-  }
+  Serial.println("Connected to google script");
+  int returnCode = http.GET();
+  Serial.print("Returncode: "); Serial.println(returnCode);
+  String response = http.getString();
+  Serial.print("Response: "); Serial.println(response);
 
   int indexFrom = 0;
   int indexTo = 0;
@@ -296,18 +312,19 @@ bool displayCalendar()
   int line = 0;
   struct calendarEntries calEnt[calEntryCount];
 
-  indexFrom = outputStr.lastIndexOf("\n") + 1;
+  Serial.println("IntexFrom");  
+  indexFrom = response.lastIndexOf("\n") + 1;
 
 
 
   // Fill calendarEntries with entries from the get-request
   while (indexTo>=0 && line<calEntryCount) {
     count++;
-    indexTo = outputStr.indexOf(";",indexFrom);
+    indexTo = response.indexOf(";",indexFrom);
     cutTo = indexTo;
 
     if(indexTo != -1) { 
-      strBuffer = outputStr.substring(indexFrom, cutTo);
+      strBuffer = response.substring(indexFrom, cutTo);
       
       indexFrom = indexTo + 1;
       
@@ -340,12 +357,12 @@ bool displayCalendar()
   if(weatherSuccess) {
     weatherIcon = WxForecast[0].Icon.substring(0,2);
 
-    Serial.println("Weatherinfo");
+    /*Serial.println("Weatherinfo");
     Serial.println(WxForecast[0].Icon);
     Serial.println(WxForecast[0].High);
     Serial.println(WxForecast[0].Winddir);
     Serial.println(WxForecast[0].Windspeed);
-    Serial.println(WxForecast[0].Rainfall);
+    Serial.println(WxForecast[0].Rainfall);*/
   }  
 
 
@@ -399,6 +416,7 @@ bool displayCalendar()
       display.drawRect(batX + 15, batY - 12, 19, 10, GxEPD_BLACK);
       display.fillRect(batX + 34, batY - 10, 2, 5, GxEPD_BLACK);
       display.fillRect(batX + 17, batY - 10, 15 * batterylevel / 100.0, 6, GxEPD_BLACK);
+      Serial.println("Draw battery: " && 15 * batterylevel / 100.0 && " - " && batterylevel);
     }
 
 
@@ -424,51 +442,8 @@ bool displayCalendar()
     }
 
   } while(display.nextPage());
-  
-  client.stop();
-  return true;
-}
-
-
-// Generic code for getting requests - doing it a bit pure, as most libraries I tried could not handle the redirects from google
-bool getRequest(char *urlServer, String urlRequest) {
-  client.stop(); // close connection before sending a new request
-  
-  if (client.connect(urlServer, 443)) { // if the connection succeeds
-    Serial.println("connecting...");
-    // send the HTTP PUT request:
-    client.println("GET " + urlRequest); // " HTTP/1.1"
-    Serial.println("GET " + urlRequest);
-    client.println("User-Agent: ESP OWM Receiver/1.1");
-    client.println();
-
-    unsigned long timeout = millis();
-    while (client.available() == 0) {
-      if (millis() - timeout > 10000) {
-        Serial.println(">>> Client Timeout !");
-        client.stop();
-        Serial.println("Connection timeout");
-        return false;
-      }
-    }
-  } else {
-    Serial.println("Calendar connection did not succeed");
-  }
 
   return true;
-
-}
-
-/* Extract URL from http redirect - used especially for google as they always redirect to a new temporary URL */
-String getURL(String url) {
-  String tagStr = "Location: ";
-  String endStr = "\n";
-
-  int indexFrom = url.indexOf(tagStr) + tagStr.length();
-  int indexTo = url.indexOf(endStr, indexFrom);
-
-  return url.substring(indexFrom, indexTo);
-
 }
 
 // Sleep until set wake-hour
@@ -510,29 +485,26 @@ void deepSleepTill(int wakeHour)
 // Get and decode weather data from OWM - credits to ESP32 Weather Station project on GIT, which I have heavily modified from - using onecall instead of forecast and current for instance. I have removed the code for weather and forecast types
 bool obtain_wx_data(const String& RequestType) {
   const String units = (Units == "M" ? "metric" : "imperial");
-  client.stop(); // close connection before sending a new request
+
   HTTPClient http;
-  String uri = "/data/2.5/" + RequestType + "?APPID=" + OWMapikey + "&mode=json&units=" + units + "&lang=" + Language + "&lat=" + Lattitude + "&lon=" + Longitude;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
-  Serial.println(uri);
+  
+  String weatherURL = String("https://") + OWMserver + "/data/2.5/" + RequestType + "?APPID=" + OWMapikey + "&mode=json&units=" + units + "&lang=" + Language + "&lat=" + Lattitude + "&lon=" + Longitude;
 
-  bool httpSucceeded;
-  httpSucceeded = getRequest(OWMserver, uri);
+  Serial.println(weatherURL);
+  http.begin(weatherURL.c_str());
 
-  if(httpSucceeded) {
-    if (!DecodeWeather(client, RequestType)) return false;
-    client.stop();
+  int httpReturnCode = http.GET();
+
+  if(httpReturnCode > 0) {
+    if (!DecodeWeather(http.getStream(), RequestType)) return false;
     http.end();
     return true;
   }
-  else
-  {
-    client.stop();
-    http.end();
-    return false;
-  }
+
   http.end();
-  return true;
+  return false;
 }
 
 // Get and decode weather data from OWM - credits to ESP32 Weather Station project on GIT, which I have heavily modified from - only using onecall instead of forecast and current for instance
@@ -562,17 +534,17 @@ bool DecodeWeather(WiFiClient& json, String Type) {
     for (byte r = 0; r < listLength; r++) {
       Serial.println("\nPeriod-" + String(r) + "--------------");
       WxForecast[r].Dt                = list[r]["dt"].as<char*>();
-      WxForecast[r].Temperature       = list[r]["temp"]["day"].as<float>();              Serial.println("Temp: "+String(WxForecast[r].Temperature));
-      WxForecast[r].Low               = list[r]["temp"]["min"].as<float>();          Serial.println("TLow: "+String(WxForecast[r].Low));
-      WxForecast[r].High              = list[r]["temp"]["max"].as<float>();          Serial.println("THig: "+String(WxForecast[r].High));
-      WxForecast[r].Pressure          = list[r]["pressure"].as<float>();          Serial.println("Pres: "+String(WxForecast[r].Pressure));
-      WxForecast[r].Humidity          = list[r]["humidity"].as<float>();          Serial.println("Humi: "+String(WxForecast[r].Humidity));
-      WxForecast[r].Icon              = list[r]["weather"][0]["icon"].as<char*>();        Serial.println("Icon: "+String(WxForecast[r].Icon));
+      WxForecast[r].Temperature       = list[r]["temp"]["day"].as<float>();              //Serial.println("Temp: "+String(WxForecast[r].Temperature));
+      WxForecast[r].Low               = list[r]["temp"]["min"].as<float>();          //Serial.println("TLow: "+String(WxForecast[r].Low));
+      WxForecast[r].High              = list[r]["temp"]["max"].as<float>();         // Serial.println("THig: "+String(WxForecast[r].High));
+      WxForecast[r].Pressure          = list[r]["pressure"].as<float>();          //Serial.println("Pres: "+String(WxForecast[r].Pressure));
+      WxForecast[r].Humidity          = list[r]["humidity"].as<float>();          //Serial.println("Humi: "+String(WxForecast[r].Humidity));
+      WxForecast[r].Icon              = list[r]["weather"][0]["icon"].as<char*>();       // Serial.println("Icon: "+String(WxForecast[r].Icon));
       WxForecast[r].Description       = list[r]["weather"][0]["description"].as<char*>(); Serial.println("Desc: "+String(WxForecast[r].Description));
-      WxForecast[r].Cloudcover        = list[r]["clouds"].as<int>();               Serial.println("CCov: "+String(WxForecast[r].Cloudcover)); // in % of cloud cover
-      WxForecast[r].Windspeed         = list[r]["wind_speed"].as<float>();             Serial.println("WSpd: "+String(WxForecast[r].Windspeed));
-      WxForecast[r].Winddir           = list[r]["wind_deg"].as<float>();               Serial.println("WDir: "+String(WxForecast[r].Winddir));
-      WxForecast[r].Rainfall          = list[r]["rain"].as<float>();                Serial.println("Rain: "+String(WxForecast[r].Rainfall));
+      WxForecast[r].Cloudcover        = list[r]["clouds"].as<int>();              // Serial.println("CCov: "+String(WxForecast[r].Cloudcover)); // in % of cloud cover
+      WxForecast[r].Windspeed         = list[r]["wind_speed"].as<float>();             //Serial.println("WSpd: "+String(WxForecast[r].Windspeed));
+      WxForecast[r].Winddir           = list[r]["wind_deg"].as<float>();              // Serial.println("WDir: "+String(WxForecast[r].Winddir));
+      WxForecast[r].Rainfall          = list[r]["rain"].as<float>();               // Serial.println("Rain: "+String(WxForecast[r].Rainfall));
     }
   }
 
@@ -585,8 +557,8 @@ void drawOWMIcon(String icon) {
   int y = weatherPosY;
   int width = 100;
   int height = 100;
-  Serial.println("Icon: ");
-  Serial.println(icon);
+  //Serial.println("Icon: ");
+  //Serial.println(icon);
 
   if(icon=="01") {
     drawBitmap(icon01Map, x, y, width, height);
@@ -713,17 +685,18 @@ void readBattery() {
 
   // Set OHM values based on the resistors used in your voltage divider http://www.ohmslawcalculator.com/voltage-divider-calculator  
   float R1 = 30;
-  float R2 = 100;
+  float R2 = 100  ;
 
   float voltage = analogRead(batteryPin) / 4096.0 * (1/(R1/(R1+R2)));
   if (voltage > 1 ) { // Only display if there is a valid reading
     Serial.println("Voltage = " + String(voltage));
 
-    if (voltage >= 4.10) percentage = 100;
-    else if (voltage <= 3.9) percentage = 75;
+    if (voltage >= 4.1) percentage = 100;
+    else if (voltage >= 3.9) percentage = 75;
     else if (voltage >= 3.7) percentage = 50;
     else if (voltage >= 3.6) percentage = 25;
-    else if (voltage <= 3.50) percentage = 0;
+    else if (voltage <= 3.5) percentage = 0;
+    Serial.println("Batterylevel = " + String(percentage));
     batterylevel = percentage;
   }
 

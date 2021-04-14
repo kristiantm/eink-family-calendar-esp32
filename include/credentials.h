@@ -47,7 +47,7 @@ const int   daylightOffset_sec = 3600;
 
 // Get calendar
 char calendarServer[] = "script.google.com"; 
-String calendarRequest = "/exec"; // This will eventually be an URL in the form of "https://script.google.com/macros/s/" + googleAPI + "/exec"
+String calendarRequest = ""; // This will eventually be an URL in the form of "https://script.google.com/macros/s/" + googleAPI + "/exec"
 
 // Set the number of entries to show - default is 10 - note that spacing between entries can push some out of the viewable area
 const int calEntryCount = 10;
