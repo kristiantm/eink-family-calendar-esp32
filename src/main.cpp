@@ -6,7 +6,9 @@ https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
 The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display. 
 Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
 
-Make sure you configure the credentials.h file before compiling, and have fun.
+The basic configuration now happens in the WIFI hotspot that is booting when you power on the board.
+The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions. 
+In that case adjust the lines in this file, under the comment "Mapping of Waveshare ESP32 Driver Board"
 
 */
 

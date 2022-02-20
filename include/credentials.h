@@ -2,13 +2,8 @@
 
 This is the main configuration file. 
 
-Make sure you 
-1) change your WIFI, 
-2) add your own OWM API code, 
-3) set your location info for weather, and 
-4) set the secret path to your google script that pulls the calendar entries.
-
-Otherwise the project will not work :)
+I have moved all configuration to the WIFI hotspot that will boot up when you turn on the project for the first time. 
+All basic configuration should be managed from there - thus disregard the lines below :)
 
 */
 
