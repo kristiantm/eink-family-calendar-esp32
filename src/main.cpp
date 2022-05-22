@@ -292,6 +292,7 @@ bool displayCalendar()
   Serial.println(calendarRequest);
 
   http.end();
+  http.setTimeout(20000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   if (!http.begin(calendarRequest)) {
     Serial.println("Cannot connect to google script");
