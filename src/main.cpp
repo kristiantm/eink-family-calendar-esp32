@@ -1,16 +1,18 @@
-/* 
+//Adapted from https://github.com/kristiantm/eink-family-calendar-esp32
 
-This is the E-Ink Family Calendar project by Argion /  Kristian Thorsted Madsen.
-https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
+        /* 
 
-The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display. 
-Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
+        This is the E-Ink Family Calendar project by Argion /  Kristian Thorsted Madsen.
+        https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
 
-The basic configuration now happens in the WIFI hotspot that is booting when you power on the board.
-The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions. 
-In that case adjust the lines in this file, under the comment "Mapping of Waveshare ESP32 Driver Board"
+        The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display. 
+        Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
 
-*/
+        The basic configuration now happens in the WIFI hotspot that is booting when you power on the board.
+        The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions. 
+        In that case adjust the lines in this file, under the comment "Mapping of Waveshare ESP32 Driver Board"
+
+        */
 
 
 #include <Arduino.h>
@@ -27,7 +29,7 @@ In that case adjust the lines in this file, under the comment "Mapping of Wavesh
 #include <ArduinoJson.h>              // https://github.com/bblanchon/ArduinoJson needs version v6 or above
 #include "Wire.h"
 
-#include <iconsOWM.c>
+//#include <iconsOWM.c>
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -35,7 +37,7 @@ In that case adjust the lines in this file, under the comment "Mapping of Wavesh
 #include <HTTPClient.h> // Needs to be from the ESP32 platform version 3.2.0 or later, as the previous has problems with http-redirect (google script)
 
 
-#include <SPIFFS.h>
+#include <SPIFFS.h> //filesystem
 using WebServerClass = WebServer;
 #include <FS.h>
 #include <AutoConnect.h>
@@ -78,9 +80,6 @@ bool startWifiServer();
 bool loadConfig();
 bool internetWorks();
 
-// Uncomment if demomode
-const bool DEMOMODE = false;
-
 // Right now the calendarentries are limited to time and title
 struct calendarEntries
 {
@@ -103,7 +102,7 @@ void setup() {
   SPI.begin(13, 12, 14, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
   //SPI.begin(18, 19, 23, 5); // 
 
-  WiFi.setHostname("FamilyCalendar");
+  WiFi.setHostname("EInkCalendar");
   startWifiServer();
 
   bool isConfigured = false;
@@ -165,46 +164,43 @@ void setup() {
 
   deepSleepTill(HOUR_TO_WAKE);
 
-
-}
+} //end setup
 
 // Not used, as we boot up from scratch every time we wake from deep sleep
-  void loop() {
-
-  }
+void loop() {}
 
 bool loadConfig(){
-      // Use the AutoConnect::where function to identify the referer.
+  // Use the AutoConnect::where function to identify the referer.
 
-      bool successfull = false;
+  bool successfull = false;
 
-      SPIFFS.begin();
-      File param = SPIFFS.open(PARAM_FILE, "r");
-      if (param) {
-        successfull = elementsAux.loadElement(param, { "text", "check", "input", "radio", "select" } );
-        param.close();
-      }
+  SPIFFS.begin();
+  File param = SPIFFS.open(PARAM_FILE, "r");
+  if (param) {
+    successfull = elementsAux.loadElement(param, { "text", "check", "input", "radio", "select" } );
+    param.close();
+  }
 
-      SPIFFS.end();
+  SPIFFS.end();
 
-      if(successfull) {
+  if(successfull) {
 
-        OWMapikey = elementsAux.getElement("check")->value;
-        googleAPI = elementsAux.getElement("input")->value;
-        Lattitude = elementsAux.getElement("radio")->value;
-        Longitude = elementsAux.getElement("select")->value;
-        calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
+    OWMapikey = elementsAux.getElement("check")->value;
+    googleAPI = elementsAux.getElement("input")->value;
+    Lattitude = elementsAux.getElement("radio")->value;
+    Longitude = elementsAux.getElement("select")->value;
+    calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
 
-        Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
+    Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
 
-      }
-      
-      return successfull;
+  }
+  
+  return successfull;
 }
 
 bool internetWorks() {
   HTTPClient http;
-  if (http.begin("script.google.com", 443)) {
+  if (http.begin("api.weather.gov", 443)) {
     http.end();
     return true;
   } else {
@@ -280,7 +276,7 @@ bool startWifiServer(){
 
   return true;
 
-}
+} //end startWifiServer
 
 
 // Main display code - assumes that the display has been initialized
