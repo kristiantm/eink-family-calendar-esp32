@@ -2,9 +2,8 @@
 //(done while waiting for my ESP32 to turn up in the mail!)
 
 //sources:
-//wifinina stuff: https://github.com/clockspot/arduino-ledclock
-//ntp and ica: https://github.com/sourcesimian/uICAL/blob/master/examples/SimpleESP8266/SimpleESP8266.ino
-//nws/json: https://arduinojson.org/v6/example/http-client/
+//wifinina: https://github.com/clockspot/arduino-ledclock
+//json: https://arduinojson.org/v6/example/http-client/
 
 #include <SPI.h>
 #include <WiFiNINA.h>

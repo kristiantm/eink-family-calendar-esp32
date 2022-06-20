@@ -1,6 +1,8 @@
 //Working sketch for Arduino Nano 33 IoT to pull and process data
 //(done while waiting for my ESP32 to turn up in the mail!)
 
+//Stopping place: NWS works, but calendar host may not work – untested at this writing, as I decided to focus on nano-test-remote
+
 //sources:
 //wifinina stuff: https://github.com/clockspot/arduino-ledclock
 //ntp and ica: https://github.com/sourcesimian/uICAL/blob/master/examples/SimpleESP8266/SimpleESP8266.ino
