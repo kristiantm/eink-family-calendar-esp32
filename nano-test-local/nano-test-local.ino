@@ -9,6 +9,7 @@
 #include <SPI.h>
 #include <WiFiNINA.h>
 #include <WiFiUdp.h> //for NTP
+#include <HTTPClient.h>
 #include <EasyNTPClient.h> //aharshac - for NTP
 #include <ArduinoJson.h> //bblanchon - for parsing NWS/calendar JSON data
 //#include <uICAL.h> //sourcesimian - for parsing ICA data
@@ -139,84 +140,47 @@ void setup() {
     Serial.println("Wasn't able to connect to NWS");
   }
 
-  // //ICAL Challenge: parse ICAL
-  // Serial.print(F("\nConnecting to calendar host "));
-  // Serial.println(ICAL_HOST);
-  // if(sslClient.connect(ICAL_HOST, 443)) {
-  //   Serial.println("Connected!");
+  //ICAL Challenge: parse ICAL
+  Serial.print(F("\nConnecting to calendar host "));
+  Serial.println(ICAL_HOST);
 
-  //   //Make an HTTP request
-  //   Serial.print("POST ");
-  //   Serial.print(ICAL_PATH);
-  //   Serial.println(" HTTP/1.1");
-  //   sslClient.print("POST ");
-  //   sslClient.print(ICAL_PATH);
-  //   sslClient.println(" HTTP/1.1");
+  HTTPClient http;
+  http.begin(sslClient, ICAL_URL);
+  http.addHeader("Content-Type", "application/json");
+  int httpResponseCode = http.POST(ICAL_POSTDATAJSON);
+  if(httpResponseCode>0) {
+    Serial.println(http.getString());
+  } else {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+  }
+  http.end();
 
-  //   sslClient.print("Host: ");
-  //   sslClient.println(ICAL_HOST);
-
-  //   // sslClient.print("User-Agent: ");
-  //   // sslClient.println(NWS_USER_AGENT);
-
-  //   sslClient.println("Connection: close");
-
-  //   Serial.println("Content-Type: application/json");
-  //   Serial.println(ICAL_POSTDATAJSON);
-  //   sslClient.println("Content-Type: application/json");
-  //   sslClient.println(ICAL_POSTDATAJSON);
-
-  //   //the rest adapted from https://arduinojson.org/v6/example/http-sslClient/
-  //   if (sslClient.println() == 0) {
-  //     Serial.println(F("Failed to send request"));
-  //     sslClient.stop();
-  //     return;
-  //   }
-
-  //   // Check HTTP status
-  //   char status[32] = {0};
-  //   sslClient.readBytesUntil('\r', status, sizeof(status));
-  //   if (strcmp(status, "HTTP/1.1 200 OK") != 0) {
-  //     Serial.print(F("Unexpected response: "));
-  //     Serial.println(status);
-  //     sslClient.stop();
-  //     return;
-  //   }
-
-  //   // Skip HTTP headers
-  //   char endOfHeaders[] = "\r\n\r\n";
-  //   if (!sslClient.find(endOfHeaders)) {
-  //     Serial.println(F("Invalid response"));
-  //     sslClient.stop();
-  //     return;
-  //   }
-
-  //   // Try to reuse previously allocated document
-  //   // Parse JSON object
-  //   DeserializationError error = deserializeJson(doc, sslClient);
-  //   if (error) {
-  //     Serial.print(F("deserializeJson() failed: "));
-  //     Serial.println(error.f_str());
-  //     sslClient.stop();
-  //     return;
-  //   }
-
-  //   Serial.println();
-
-  //   // Extract values
-  //   for (JsonObject events_event : doc["events"].as<JsonArray>()) {
-  //     Serial.print(events_event["ldstart"].as<char*>());
-  //     if(!events_event["allday"]) {
-  //       Serial.print(" ");
-  //       Serial.print(events_event["timestart"].as<char*>());
-  //     }
-  //     Serial.print(" ");
-  //     Serial.println(events_event["summary"].as<char*>());
-  //   }
-
-  //   // Disconnect
+  // // Try to reuse previously allocated document
+  // // Parse JSON object
+  // DeserializationError error = deserializeJson(doc, sslClient);
+  // if (error) {
+  //   Serial.print(F("deserializeJson() failed: "));
+  //   Serial.println(error.f_str());
   //   sslClient.stop();
-  // } //end connection to ICS
+  //   return;
+  // }
+
+  // Serial.println();
+
+  // // Extract values
+  // for (JsonObject events_event : doc["events"].as<JsonArray>()) {
+  //   Serial.print(events_event["ldstart"].as<char*>());
+  //   if(!events_event["allday"]) {
+  //     Serial.print(" ");
+  //     Serial.print(events_event["timestart"].as<char*>());
+  //   }
+  //   Serial.print(" ");
+  //   Serial.println(events_event["summary"].as<char*>());
+  // }
+
+  // // Disconnect
+  // sslClient.stop();
 
 } //end fn setup
 

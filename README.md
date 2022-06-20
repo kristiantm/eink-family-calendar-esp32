@@ -1,4 +1,12 @@
-# eink-family-calendar-esp32
+# iot-calendar-client
+
+Forked from [kristiantm/eink-family-calendar-esp32](https://github.com/kristiantm/eink-family-calendar-esp32). Intended ultimately for use with [iot-calendar-server](https://github.com/clockspot/iot-calendar-server).
+
+`/nano-test-local` is an (incomplete) test sketch for an Arduino Nano 33 IoT to pull NWS (JSON) and iCal data and process it locally. `/nano-test-remote` will leave the hard work to [iot-calendar-server](https://github.com/clockspot/iot-calendar-server) and simply render the data on the e-ink screen.
+
+Original readme follows.
+
+## eink-family-calendar-esp32
 E-ink calendar integrating google calendar og OWM onto a 7.5 inch Waveshare screen based on an ESP32 LOLIN32 board
 
 |<img src="calendar.jpg" width=45%>|<img src="calendar_weather.jpg" width=45%>|
