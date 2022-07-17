@@ -1,17 +1,16 @@
-/* 
+/*
 
 This is the E-Ink Family Calendar project by Argion /  Kristian Thorsted Madsen.
 https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
 
-The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display. 
+The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display.
 Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
 
 The basic configuration now happens in the WIFI hotspot that is booting when you power on the board.
-The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions. 
+The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions.
 In that case adjust the lines in this file, under the comment "Mapping of Waveshare ESP32 Driver Board"
 
 */
-
 
 #include <Arduino.h>
 #define ENABLE_GxEPD2_GFX 0
@@ -20,11 +19,10 @@ In that case adjust the lines in this file, under the comment "Mapping of Wavesh
 
 #include <credentials.h>
 
-
 #include "time.h"
 #include "timeheaders.h"
 #include <string>
-#include <ArduinoJson.h>              // https://github.com/bblanchon/ArduinoJson needs version v6 or above
+#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson needs version v6 or above
 #include "Wire.h"
 
 #include <iconsOWM.c>
@@ -34,44 +32,39 @@ In that case adjust the lines in this file, under the comment "Mapping of Wavesh
 #include <WifiClientSecure.h>
 #include <HTTPClient.h> // Needs to be from the ESP32 platform version 3.2.0 or later, as the previous has problems with http-redirect (google script)
 
-
 #include <SPIFFS.h>
 using WebServerClass = WebServer;
 #include <FS.h>
 #include <AutoConnect.h>
 #include <webconfig.h>
 
-
-WebServerClass  server;
+WebServerClass server;
 AutoConnect portal(server);
 AutoConnectConfig config;
-AutoConnectAux  elementsAux;
-AutoConnectAux  saveAux;
+AutoConnectAux elementsAux;
+AutoConnectAux saveAux;
 
-int portalTimeoutTime = 60 * 5; // Seconds to wait before showing calendar
+extern int dayCalender[7][5];
 
-void drawOWMIcon(String icon);
+
 void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height);
 
-
 /* Mapping of Waveshare ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
-GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
-//GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
+// GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
+// GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
 
-/* Mapping of Generic ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
-//GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4));
-//GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=5*/ SS, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4)); // GDEW075T7 800x480
+// GxEPD2_BW<GxEPD2_750, GxEPD2_750::HEIGHT> display(GxEPD2_750(/*CS=5*/ SS, /*DC=*/17, /*RST=*/16, /*BUSY=*/4)); // GDEW075T8   640x384
+GxEPD2_3C<GxEPD2_750c, GxEPD2_750c::HEIGHT> display(GxEPD2_750c(/*CS=5*/ SS, /*DC=*/17, /*RST=*/16, /*BUSY=*/4));
 
-int    wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, start_time;
+int wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, start_time;
 
 HTTPClient http;
-
 
 bool displayCalendar();
 void displayCalendarEntry(String eventTime, String eventName, String eventDesc);
 void deepSleepTill(int wakeHour);
-bool obtain_wx_data(const String& RequestType);
-bool DecodeWeather(WiFiClient& json, String Type);
+bool obtain_wx_data(const String &RequestType);
+bool DecodeWeather(WiFiClient &json, String Type);
 void drawWind();
 void readBattery();
 bool startWifiServer();
@@ -84,55 +77,62 @@ const bool DEMOMODE = false;
 // Right now the calendarentries are limited to time and title
 struct calendarEntries
 {
-  String calTime;
-  String calTitle;
+  String Month;
+  String Day;
+  String Task;
 };
 
 float batterylevel = -1; // Being set when reading battery level - used to avoid deep sleep when under 0%, and when drawing battery
 
 // Main flow of the program. It is designed to boot up, pull the info and refresh the screen, and then go back into deep sleep.
-void setup() {
+void setup()
+{
 
   // Initialize board
   Serial.begin(115200);
   Serial.println("setup");
 
-  //Initialize e-ink display
-  display.init(115200); // uses standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
-  SPI.end(); // release standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
-  SPI.begin(13, 12, 14, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
-  //SPI.begin(18, 19, 23, 5); // 
+  // Initialize e-ink display
+  display.init(115200);      // uses standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
+  SPI.end();                 // release standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
+  SPI.begin(18, 12, 23, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
+  // SPI.begin(18, 19, 23, 5); //
 
-  WiFi.setHostname("FamilyCalendar");
-  startWifiServer();
+  WiFi.setHostname("WG-Kalender");
+  // startWifiServer();
 
   bool isConfigured = false;
   bool isWebConnected = false;
 
-  isConfigured = loadConfig();
-  if(isConfigured) Serial.println("Configuration loaded"); else Serial.println("Configuration not loaded");
+  // isConfigured = loadConfig();
+  // if(isConfigured) Serial.println("Configuration loaded"); else Serial.println("Configuration not loaded");
 
-  while(WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
   }
 
   isWebConnected = internetWorks();
 
-
-  if(isWebConnected) Serial.println("Internet connected"); else Serial.println("Internet not connected");
-  
-  if((isConfigured) && (isWebConnected)) {
-
+  /*if (isWebConnected)
+    Serial.println("Internet connected");
+  else
+    Serial.println("Internet not connected");
+*/
+  // if((isConfigured) && (isWebConnected)) {
+  if ((isWebConnected))
+  {
     Serial.println("Configuration exist and internet connection works - displaying calendar");
 
     // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
     // Read batterylevel and set batterylevel variable
-    readBattery();
+    // readBattery();
 
-    //Get and draw calendar on display
+    // Get and draw calendar on display
     display.setRotation(calendarOrientation);
     displayCalendar(); // Main flow for drawing calendar
 
@@ -142,90 +142,105 @@ void setup() {
     display.powerOff();
   }
 
-  if((esp_sleep_get_wakeup_cause() <= 5)) {
+  //if ((esp_sleep_get_wakeup_cause() <= 5))
+  //{
 
     // If the calendar is not waking from sleep, spend 5 minutes displaying the server
-    Serial.println("Booting for the first time - showing web-portal in " + String(portalTimeoutTime) + " seconds");
-    Serial.println("Connected on IP " + String(WiFi.localIP().toString()));
-    
-    
-    struct timeval current_time;
-    gettimeofday(&current_time, NULL);
-    int target_time = current_time.tv_sec + portalTimeoutTime;
+    // Serial.println("Booting for the first time - showing web-portal in " + String(portalTimeoutTime) + " seconds");
+    // Serial.println("Connected on IP " + String(WiFi.localIP().toString()));
 
-    while(current_time.tv_sec < target_time) {
-        portal.handleClient();
-      gettimeofday(&current_time, NULL);
+    // struct timeval current_time;
+    // gettimeofday(&current_time, NULL);
+    // int target_time = current_time.tv_sec + portalTimeoutTime;
 
-    }
-  }
+    // while(current_time.tv_sec < target_time) {
+    //     portal.handleClient();
+    //   gettimeofday(&current_time, NULL);
+
+    //}
+  //}
 
   // Deep-sleeping unitl the selected wake-hour - default 5 in the morning
-  Serial.println("Refresh done - sleeping");
+  // Serial.println("Refresh done - sleeping");
 
   deepSleepTill(HOUR_TO_WAKE);
-
-
 }
 
 // Not used, as we boot up from scratch every time we wake from deep sleep
-  void loop() {
-
-  }
-
-bool loadConfig(){
-      // Use the AutoConnect::where function to identify the referer.
-
-      bool successfull = false;
-
-      SPIFFS.begin();
-      File param = SPIFFS.open(PARAM_FILE, "r");
-      if (param) {
-        successfull = elementsAux.loadElement(param, { "text", "check", "input", "radio", "select" } );
-        param.close();
-      }
-
-      SPIFFS.end();
-
-      if(successfull) {
-
-        OWMapikey = elementsAux.getElement("check")->value;
-        googleAPI = elementsAux.getElement("input")->value;
-        Lattitude = elementsAux.getElement("radio")->value;
-        Longitude = elementsAux.getElement("select")->value;
-        calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
-
-        Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
-
-      }
-      
-      return successfull;
+void loop()
+{
 }
 
-bool internetWorks() {
+bool loadConfig()
+{
+  // Use the AutoConnect::where function to identify the referer.
+
+  bool successfull = false;
+
+  SPIFFS.begin();
+  File param = SPIFFS.open(PARAM_FILE, "r");
+  if (param)
+  {
+    successfull = elementsAux.loadElement(param, {"text", "check", "input", "radio", "select"});
+    param.close();
+  }
+
+  SPIFFS.end();
+
+  if (successfull)
+  {
+
+    OWMapikey = elementsAux.getElement("check")->value;
+    googleAPI = elementsAux.getElement("input")->value;
+    Lattitude = elementsAux.getElement("radio")->value;
+    Longitude = elementsAux.getElement("select")->value;
+    calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
+
+    Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
+  }
+
+  return successfull;
+}
+
+bool internetWorks()
+{
   HTTPClient http;
-  if (http.begin("script.google.com", 443)) {
+  if (http.begin("script.google.com", 443))
+  {
     http.end();
     return true;
-  } else {
+  }
+  else
+  {
     http.end();
     return false;
   }
 }
 
-bool startWifiServer(){
+void drawCentreString(const char *buf, int x, int y)
+{
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(buf, x, y, &x1, &y1, &w, &h); // calc width of new string
+  display.setCursor(x - w / 2, y);
+  display.print(buf);
+}
+
+bool startWifiServer()
+{
   // Responder of root page handled directly from WebServer class.
-  server.on("/", []() {
+  server.on("/", []()
+            {
     String content = "<p>Welcome to the ESP32 Family Calendar.</p><p>In the menu you can: <br>1) Connect the calendar to your local wifi under \"Configure new AP\", <br>2) Configure your calendar under \"Calendar\" linking to your google script, your open weather API etc. </p><p>I hope you enjoy the calendar. Feel free to leave a comment on github or instructables. </p><p>Best regards, <br>Kristian</p>.&ensp;";
     content += AUTOCONNECT_LINK(COG_24);
-    server.send(200, "text/html", content);
-  });
+    server.send(200, "text/html", content); });
 
   // Load a custom web page described in JSON as PAGE_ELEMENT and
   // register a handler. This handler will be invoked from
   // AutoConnectSubmit named the Load defined on the same page.
   elementsAux.load(FPSTR(PAGE_ELEMENTS));
-  elementsAux.on([] (AutoConnectAux& aux, PageArgument& arg) {
+  elementsAux.on([](AutoConnectAux &aux, PageArgument &arg)
+                 {
     if (portal.where() == "/elements") {
       // Use the AutoConnect::where function to identify the referer.
       // Since this handler only supports AutoConnectSubmit called the
@@ -239,11 +254,11 @@ bool startWifiServer(){
       }
       SPIFFS.end();
     }
-    return String();
-  });
+    return String(); });
 
   saveAux.load(FPSTR(PAGE_SAVE));
-  saveAux.on([] (AutoConnectAux& aux, PageArgument& arg) {
+  saveAux.on([](AutoConnectAux &aux, PageArgument &arg)
+             {
     // You can validate input values ​​before saving with
     // AutoConnectInput::isValid function.
     // Verification is using performed regular expression set in the
@@ -270,18 +285,160 @@ bool startWifiServer(){
       aux["echo"].value = "SPIFFS failed to open.";
     }
     SPIFFS.end();
-    return String();
-  });
+    return String(); });
 
-  portal.join({ elementsAux, saveAux });
+  portal.join({elementsAux, saveAux});
   config.ticker = true;
   portal.config(config);
   portal.begin();
 
   return true;
-
 }
 
+void secondWeek()
+{
+}
+void setCalendarArray()
+{
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+  }
+  int rest_day = timeinfo.tm_mday;
+
+  // Get number of weeks befor today
+  int week_cnt = 0;
+  while ((rest_day) > 6)
+  {
+    rest_day -= 7;
+    week_cnt++;
+  }
+  Serial.print("week_cnt: ");
+  Serial.println(week_cnt);
+  Serial.print("restday_cnt: ");
+  Serial.println(rest_day);
+
+  int status = 0;
+  // switch (status)
+  //{
+  // case 0: // First Week of Month
+  for (int mday = 0; mday < 7 - rest_day; mday++)
+  {
+    dayCalender[mday][0] = daysOfMonth[timeinfo.tm_mon - 1] - (7 - rest_day) + 1 + mday;
+    Serial.print("[");
+    Serial.print(mday);
+    Serial.print("][");
+    Serial.print(0);
+    Serial.print("] = ");
+    Serial.println(daysOfMonth[timeinfo.tm_mon - 1] - (7 - rest_day) + 1 + mday);
+  }
+
+  for (int mday = 0; mday < rest_day; mday++)
+  {
+    dayCalender[convertTmWeekday[timeinfo.tm_wday] - mday][0] = rest_day - mday;
+    Serial.print("[");
+    Serial.print(convertTmWeekday[timeinfo.tm_wday] - mday);
+    Serial.print("][");
+    Serial.print(0);
+    Serial.print("] = ");
+    Serial.println(rest_day - mday);
+  }
+
+  int mweek = 0;
+  for (int mday = rest_day + 1; mday <= rest_day + 7; mday++)
+  {
+    dayCalender[mweek][1] = mday;
+    Serial.print("[");
+    Serial.print(mweek);
+    Serial.print("][");
+    Serial.print(1);
+    Serial.print("] = ");
+    Serial.println(mday);
+    mweek++;
+  }
+
+  mweek = 0;
+  for (int mday = rest_day + 7 + 1; mday <= rest_day + 14; mday++)
+  {
+    dayCalender[mweek][2] = mday;
+    Serial.print("[");
+    Serial.print(mweek);
+    Serial.print("][");
+    Serial.print(2);
+    Serial.print("] = ");
+    Serial.println(mday);
+    mweek++;
+  }
+
+  mweek = 0;
+  for (int mday = rest_day + 14 + 1; mday <= rest_day + 21; mday++)
+  {
+    dayCalender[mweek][3] = mday;
+    Serial.print("[");
+    Serial.print(mweek);
+    Serial.print("][");
+    Serial.print(3);
+    Serial.print("] = ");
+    Serial.println(mday);
+    mweek++;
+  }
+
+  mweek = 0;
+  for (int mday = rest_day + 21 + 1; mday <= daysOfMonth[timeinfo.tm_mon]; mday++)
+  {
+    dayCalender[mweek][4] = mday;
+    Serial.print("[");
+    Serial.print(mweek);
+    Serial.print("][");
+    Serial.print(4);
+    Serial.print("] = ");
+    Serial.println(mday);
+    mweek++;
+  }
+  // break;
+
+  // case 2: // Last week of Month
+  /* code */
+  // break;
+  //}
+
+  // Set Date Today
+  // dayCalender[convertTmWeekday[timeinfo.tm_wday]][week_cnt] = timeinfo.tm_mday;
+
+  // // Set Date days before
+  // rest_day = timeinfo.tm_mday;
+  // Serial.println("before");
+  // for (int days_before = convertTmWeekday[timeinfo.tm_wday] - 1; days_before >= 0; days_before--)
+  // {
+  //   rest_day--;
+  //   dayCalender[days_before][week_cnt] = rest_day;
+  //   Serial.print("[");
+  //   Serial.print(days_before);
+  //   Serial.print("][");
+  //   Serial.print(week_cnt);
+  //   Serial.print("] = ");
+  //   Serial.println(rest_day);
+  // }
+
+  // // Set Date days after
+  // rest_day = timeinfo.tm_mday;
+  // Serial.println("after");
+  // for (int days_after = convertTmWeekday[timeinfo.tm_wday] + 1; days_after < 7; days_after++)
+  // {
+  //   rest_day++;
+  //   dayCalender[days_after][week_cnt] = rest_day;
+  //   Serial.print("[");
+  //   Serial.print(days_after);
+  //   Serial.print("][");
+  //   Serial.print(week_cnt);
+  //   Serial.println("]");
+  //   Serial.println(rest_day);
+  // }
+
+  // for(int day_before = convertTmWeekday[timeinfo.tm_wday])
+  // dayCalender[][]
+}
 
 // Main display code - assumes that the display has been initialized
 bool displayCalendar()
@@ -294,20 +451,25 @@ bool displayCalendar()
   http.end();
   http.setTimeout(20000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  if (!http.begin(calendarRequest)) {
+  if (!http.begin(calendarRequest))
+  {
     Serial.println("Cannot connect to google script");
     return false;
-  } 
+  }
 
   Serial.println("Connected to google script");
   int returnCode = http.GET();
-  Serial.print("Returncode: "); Serial.println(returnCode);
+  Serial.print("Returncode: ");
+  Serial.println(returnCode);
   String response = http.getString();
-  Serial.print("Response: "); Serial.println(response);
+  Serial.print("Response: ");
+  Serial.println(response);
 
   int indexFrom = 0;
   int indexTo = 0;
   int cutTo = 0;
+  int nextSemiq = 0;
+  int cutDateIndex = 0;
 
   String strBuffer = "";
 
@@ -315,59 +477,89 @@ bool displayCalendar()
   int line = 0;
   struct calendarEntries calEnt[calEntryCount];
 
-  Serial.println("IntexFrom");  
-  indexFrom = response.lastIndexOf("\n") + 1;
-
-
+  Serial.println("IntexFrom");
+  indexFrom = response.length() - 1;
 
   // Fill calendarEntries with entries from the get-request
-  while (indexTo>=0 && line<calEntryCount) {
-    count++;
-    indexTo = response.indexOf(";",indexFrom);
-    cutTo = indexTo;
+  while (nextSemiq >= 0 && line < calEntryCount)
+  {
+    nextSemiq = response.indexOf(";", 0);
+    strBuffer = response.substring(0, nextSemiq);
+    response = response.substring(nextSemiq + 1, indexFrom);
 
-    if(indexTo != -1) { 
-      strBuffer = response.substring(indexFrom, cutTo);
-      
-      indexFrom = indexTo + 1;
-      
-      Serial.println(strBuffer);
+    switch (count)
+    {
+    case 0:
+      cutDateIndex = strBuffer.indexOf(" ", 0);
+      calEnt[line].Day = strBuffer.substring(0, cutDateIndex); // Exclude end date and time to avoid clutter - Format is "Wed Feb 10 2020 10:00"
+      Serial.print("Day: ");
+      Serial.println(calEnt[line].Day);
 
-      if(count == 1) {
-        // Set entry time
-        calEnt[line].calTime = strBuffer.substring(0,21); //Exclude end date and time to avoid clutter - Format is "Wed Feb 10 2020 10:00"
+      calEnt[line].Month = strBuffer.substring(cutDateIndex);
+      Serial.print("Mont: ");
+      Serial.println(calEnt[line].Month);
+      count = 1;
+      break;
 
-      } else if(count == 2) {
-        // Set entry title
-        calEnt[line].calTitle = strBuffer;
+    case 1:
+      calEnt[line].Task = strBuffer;
+      Serial.print("Task: ");
+      Serial.println(calEnt[line].Task);
+      count = 0;
+      line++;
+      break;
 
-      } else {
-          count = 0;
-          line++;
-      }
+    default:
+      count = 0;
+      break;
     }
+    // count++;
+    // indexTo = response.indexOf(";",indexFrom);
+    // cutTo = indexTo;
+
+    // if(indexTo != -1) {
+    //   strBuffer = response.substring(indexFrom, cutTo);
+
+    //   indexFrom = indexTo + 1;
+
+    //   Serial.println(strBuffer);
+
+    //   if(count == 1) {
+    //     // Set entry time
+    //     calEnt[line].Day = strBuffer.substring(0,strBuffer.indexOf(" ",0)); //Exclude end date and time to avoid clutter - Format is "Wed Feb 10 2020 10:00"
+    //     calEnt[line].Month = strBuffer.substring(0,strBuffer.indexOf(";",0));
+
+    //   } else if(count == 2) {
+    //     // Set entry title
+    //     calEnt[line].Task = strBuffer;
+
+    //   } else {
+    //       count = 0;
+    //       line++;
+    //   }
+    // }
   }
 
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
+  if (!getLocalTime(&timeinfo))
+  {
     Serial.println("Failed to obtain time");
   }
 
-  String weatherIcon;
+  // String weatherIcon;
 
   // Get weather info using the OWM API "onecall" which gives you current info, 3-hour forecast and 5-day forecast in one call. We only use the first day of the 5-day forecast
-  bool weatherSuccess = obtain_wx_data("onecall");
-  if(weatherSuccess) {
-    weatherIcon = WxForecast[0].Icon.substring(0,2);
+  // bool weatherSuccess = obtain_wx_data("onecall");
+  // if(weatherSuccess) {
+  //  weatherIcon = WxForecast[0].Icon.substring(0,2);
 
-    /*Serial.println("Weatherinfo");
-    Serial.println(WxForecast[0].Icon);
-    Serial.println(WxForecast[0].High);
-    Serial.println(WxForecast[0].Winddir);
-    Serial.println(WxForecast[0].Windspeed);
-    Serial.println(WxForecast[0].Rainfall);*/
-  }  
-
+  /*Serial.println("Weatherinfo");
+  Serial.println(WxForecast[0].Icon);
+  Serial.println(WxForecast[0].High);
+  Serial.println(WxForecast[0].Winddir);
+  Serial.println(WxForecast[0].Windspeed);
+  Serial.println(WxForecast[0].Rainfall);*/
+  // }
 
   // All data is now gathered and processed.
   // Prepare to refresh the display with the calendar entries and weather info
@@ -380,71 +572,138 @@ bool displayCalendar()
   // Clear the screen with white using full window mode. Not strictly nessecary, but as I selected to use partial window for the content, I decided to do a full refresh first.
   display.setFullWindow();
   display.firstPage();
-  do {
+  do
+  {
     display.fillScreen(GxEPD_WHITE);
-  }   while(display.nextPage());
+  } while (display.nextPage());
 
   // Print the content on the screen - I use a partial window refresh for the entire width and height, as I find this makes a clearer picture
   display.setPartialWindow(0, 0, display.width(), display.height());
   display.firstPage();
-  do {
-    int x = calendarPosX;
-    int y = calendarPosY;
+  do
+  {
 
-    display.fillScreen(GxEPD_WHITE);
-    display.setTextColor(GxEPD_BLACK);
 
     // Print mini-test in top in white (e.g. not visible) - avoids a graphical glitch I observed in all first-lines printed
-    display.setCursor(x, 0);
+     //display.setCursor(0, 384); //640x384
+     //display.setTextColor(GxEPD_BLACK);
+     //display.setFont(fontDescription);
+     //display.print("Graphical Flitch");
+
+    // Frame Calendar
+    display.fillRect(0, 0, 240, 384, GxEPD_BLACK);
     display.setTextColor(GxEPD_WHITE);
-    display.setFont(fontEntryTime);
-    display.print(weekday[timeinfo.tm_wday]);
 
-    // Print morning greeting (Happy X-day)
-    display.setCursor(x, y);
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+      Serial.println("Failed to obtain time");
+    }
+
+    display.setFont(fontTitle);
+    drawCentreString(weekdayNumbers[timeinfo.tm_wday], 120, 50);
+
+    display.setFont(fontMassiveTitle);
+    drawCentreString(String(timeinfo.tm_mday).c_str(), 120, 105);
+
+    display.setFont(fontDescription);
+    String monthYear = monthNumbers[timeinfo.tm_mon];
+    monthYear += " ";
+    monthYear += (timeinfo.tm_year + 1900);
+    drawCentreString((monthYear).c_str(), 120, 150);
+
+    const int dx = 30;
+    const int dy = 32;
+    const int x_Start = 28;
+    int x = x_Start;
+    int y = 230;
+
+    display.setFont(fontSmallDescription);
+    display.setTextColor(GxEPD_WHITE);
+    display.setCursor(10, 180);
+    for (int weekday = 0; weekday < 7; weekday++)
+    {
+      drawCentreString(String(weekdayNumbersShort[weekday]).c_str(), x, 200);
+      x += dx;
+    }
+
+    setCalendarArray();
+    x = x_Start;
+    for (int column = 0; column < 5; column++)
+    {
+      for (int row = 0; row < 7; row++)
+      {
+        if (dayCalender[row][column] == timeinfo.tm_mday)
+        {
+          display.setTextColor(GxEPD_RED);
+          display.fillRoundRect(x - 7, y - 15, 20, 20, 5, GxEPD_WHITE);
+        }
+        else
+        {
+          display.setTextColor(GxEPD_WHITE);
+        }
+
+        drawCentreString(String(dayCalender[row][column]).c_str(), x, y);
+        x += dx;
+      }
+      y += dy;
+      x = x_Start;
+    }
+
+    // Frame Tasks
+    display.fillRect(250, 5, 400, 55, GxEPD_BLACK);
+    display.setTextColor(GxEPD_WHITE);
+    display.setCursor(265, 45);
+    display.setFont(fontTitle);
+    display.print("Tasks");
+
     display.setTextColor(GxEPD_BLACK);
-    display.setFont(fontMainTitle);
-    display.print(weekday[timeinfo.tm_wday]);
-
-    // If fetching the weather was a succes, then print the weather
-    if(weatherSuccess) {
-      drawOWMIcon(weatherIcon);
-    }
-
-    // Draw battery level
-    if(batterylevel >= 0) {
-      int batX = weatherPosX+50;
-      int batY = weatherPosY + 130;
-
-      display.drawRect(batX + 15, batY - 12, 19, 10, GxEPD_BLACK);
-      display.fillRect(batX + 34, batY - 10, 2, 5, GxEPD_BLACK);
-      display.fillRect(batX + 17, batY - 10, 15 * batterylevel / 100.0, 6, GxEPD_BLACK);
-      Serial.println("Draw battery: " && 15 * batterylevel / 100.0 && " - " && batterylevel);
-    }
-
+    x = 260;
+    y = 70;
 
     // Set position for the first calendar entry
-    y = y + 45;
-    
+    y = y + 35;
+
     // Print calendar entries from first [0] to the last fetched [line-1] - in case there is fewer events than the maximum allowed
-    for(int i=0;  i < line; i++) {
+    for (int i = 0; i < line; i++)
+    {
 
       // Print event time
-      display.setCursor(x, y);
-      display.setFont(fontEntryTime);
-      display.print(calEnt[i].calTime);
+      // display.setCursor(x, y);
+      // display.setFont(fontDescription);
+      // display.print(calEnt[i].Month);
 
       // Print event title
-      display.setCursor(x, y + 30);
-      display.setFont(fontEntryTitle);
-      display.print(calEnt[i].calTitle);
+
+      display.setCursor(x, y);
+      display.setTextColor(GxEPD_BLACK);
+      display.setFont(fontDescription);
+      display.print(calEnt[i].Task);
+
+      display.fillRect(570, y - 15, 70, 25, GxEPD_BLACK);
+      display.setCursor(580, y + 5);
+      display.setFont(fontSmallDescription);
+      display.setTextColor(GxEPD_WHITE);
+      String TaskDate = calEnt[i].Day + " " + monthNumbersShort[(calEnt[i].Month).toInt()];
+      display.print(TaskDate);
+
+      if (timeinfo.tm_mday == (calEnt[i].Day).toInt())
+      {
+        display.fillRect(570, y - 35, 70, 25, GxEPD_RED);
+        display.setCursor(580, y - 15);
+        display.setFont(fontSmallDescription);
+        display.setTextColor(GxEPD_WHITE);
+        display.print("Heute");
+      }
+
+      // Add Line between Tasks
+      display.fillRect(x, y + 10, 380, 2, GxEPD_BLACK);
 
       // Prepare y-position for next event entry
       y = y + calendarSpacing;
-
     }
 
-  } while(display.nextPage());
+  } while (display.nextPage());
 
   return true;
 }
@@ -453,21 +712,26 @@ bool displayCalendar()
 void deepSleepTill(int wakeHour)
 {
   // If battery is too low (see getBattery code), enter deepSleep and do not wake up
-  if(batterylevel == 0) {
+  if (batterylevel == 0)
+  {
     esp_deep_sleep_start();
   }
 
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
+  if (!getLocalTime(&timeinfo))
+  {
     Serial.println("Failed to obtain time");
   }
 
   int wakeInSec = 0;
 
-  if(timeinfo.tm_hour < wakeHour) {
-      wakeInSec = (wakeHour - timeinfo.tm_hour - 1) * 60 * 60;
-  } else {
-      wakeInSec = (wakeHour - timeinfo.tm_hour + 24 - 1) * 60 * 60;
+  if (timeinfo.tm_hour < wakeHour)
+  {
+    wakeInSec = (wakeHour - timeinfo.tm_hour - 1) * 60 * 60;
+  }
+  else
+  {
+    wakeInSec = (wakeHour - timeinfo.tm_hour + 24 - 1) * 60 * 60;
   }
 
   // Add minutes
@@ -480,230 +744,38 @@ void deepSleepTill(int wakeHour)
   Serial.println(wakeInSec);
 
   esp_sleep_enable_timer_wakeup(wakeInSec * uS_TO_S_FACTOR);
-  Serial.flush(); 
+  Serial.flush();
   esp_deep_sleep_start();
-
 }
 
-// Get and decode weather data from OWM - credits to ESP32 Weather Station project on GIT, which I have heavily modified from - using onecall instead of forecast and current for instance. I have removed the code for weather and forecast types
-bool obtain_wx_data(const String& RequestType) {
-  const String units = (Units == "M" ? "metric" : "imperial");
-
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-  
-  String weatherURL = String("https://") + OWMserver + "/data/2.5/" + RequestType + "?APPID=" + OWMapikey + "&mode=json&units=" + units + "&lang=" + Language + "&lat=" + Lattitude + "&lon=" + Longitude;
-
-  Serial.println(weatherURL);
-  http.begin(weatherURL.c_str());
-
-  int httpReturnCode = http.GET();
-
-  if(httpReturnCode > 0) {
-    if (!DecodeWeather(http.getStream(), RequestType)) return false;
-    http.end();
-    return true;
-  }
-
-  http.end();
-  return false;
-}
-
-// Get and decode weather data from OWM - credits to ESP32 Weather Station project on GIT, which I have heavily modified from - only using onecall instead of forecast and current for instance
-bool DecodeWeather(WiFiClient& json, String Type) {
-  Serial.print(F("\nCreating object...and "));
-  // allocate the JsonDocument
-  DynamicJsonDocument doc(35 * 1024);
-  // Deserialize the JSON document
-  DeserializationError error = deserializeJson(doc, json);
-  // Test if parsing succeeds.
-  if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.c_str());
-    return false;
-  }
-  // convert it to a JsonObject
-  JsonObject root = doc.as<JsonObject>();
-  Serial.println(" Decoding " + Type + " data");
-
-  if (Type == "onecall") {
-    // Selecting "daily" forecast for the next five days - alternatives are "forecast" for 3-hour forcasts, and "current" for the weather right now
-    JsonArray list                  = root["daily"];
-    int listLength = list.size();
-    Serial.println(listLength);
-
-    // Collecting the whole forecast - even though I am only using the first day list[0]
-    for (byte r = 0; r < listLength; r++) {
-      Serial.println("\nPeriod-" + String(r) + "--------------");
-      WxForecast[r].Dt                = list[r]["dt"].as<char*>();
-      WxForecast[r].Temperature       = list[r]["temp"]["day"].as<float>();              //Serial.println("Temp: "+String(WxForecast[r].Temperature));
-      WxForecast[r].Low               = list[r]["temp"]["min"].as<float>();          //Serial.println("TLow: "+String(WxForecast[r].Low));
-      WxForecast[r].High              = list[r]["temp"]["max"].as<float>();         // Serial.println("THig: "+String(WxForecast[r].High));
-      WxForecast[r].Pressure          = list[r]["pressure"].as<float>();          //Serial.println("Pres: "+String(WxForecast[r].Pressure));
-      WxForecast[r].Humidity          = list[r]["humidity"].as<float>();          //Serial.println("Humi: "+String(WxForecast[r].Humidity));
-      WxForecast[r].Icon              = list[r]["weather"][0]["icon"].as<char*>();       // Serial.println("Icon: "+String(WxForecast[r].Icon));
-      WxForecast[r].Description       = list[r]["weather"][0]["description"].as<char*>(); Serial.println("Desc: "+String(WxForecast[r].Description));
-      WxForecast[r].Cloudcover        = list[r]["clouds"].as<int>();              // Serial.println("CCov: "+String(WxForecast[r].Cloudcover)); // in % of cloud cover
-      WxForecast[r].Windspeed         = list[r]["wind_speed"].as<float>();             //Serial.println("WSpd: "+String(WxForecast[r].Windspeed));
-      WxForecast[r].Winddir           = list[r]["wind_deg"].as<float>();              // Serial.println("WDir: "+String(WxForecast[r].Winddir));
-      WxForecast[r].Rainfall          = list[r]["rain"].as<float>();               // Serial.println("Rain: "+String(WxForecast[r].Rainfall));
-    }
-  }
-
-  return true;
-}
-
-// Draw a weathericon based on the "Icon" string from OWM - we select and print the right one from the iconsOWM.c - see https://openweathermap.org/weather-conditions
-void drawOWMIcon(String icon) {
-  int x = weatherPosX+5;
-  int y = weatherPosY;
-  int width = 100;
-  int height = 100;
-  //Serial.println("Icon: ");
-  //Serial.println(icon);
-
-  if(icon=="01") {
-    drawBitmap(icon01Map, x, y, width, height);
-  } else if(icon=="02") {
-    drawBitmap(icon02Map, x, y, width, height);
-  } else if(icon=="03") {
-    drawBitmap(icon03Map, x, y, width, height);
-  } else if(icon=="04") {
-    drawBitmap(icon04Map, x, y, width, height);
-  } else if(icon=="09") {
-    drawBitmap(icon09Map, x, y, width, height);
-  } else if(icon=="10") {
-    drawBitmap(icon10Map, x, y, width, height);
-  } else if(icon=="11") {
-    drawBitmap(icon11Map, x, y, width, height);
-  } else if(icon=="13") {
-    drawBitmap(icon13Map, x, y, width, height);
-  } else if(icon=="50") {
-    drawBitmap(icon50Map, x, y, width, height);
-  } else {
-    Serial.println("No icon selected");
-    Serial.println(icon);
-  }
-
-  drawWind();
-
-}
-
-// Draw a bitmap - used for the weather icon
-void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height) {
-
-  Serial.println("Drawing bitmap");
-
-  display.drawInvertedBitmap(x, y, iconMap, width, height, GxEPD_BLACK);
-
-  String weatherInfo = "" + String(round(WxForecast[0].Low),0) + "C / " + String(round(WxForecast[0].High),0) + "C";
-  
-  display.setCursor(x+5,y+height-10);
-  display.setTextColor(GxEPD_BLACK);
-  display.setFont(fontWeather);
-
-  display.print(weatherInfo);
-
-}
-
-// Combining the wind-info-line
-void drawWind() {
-  int x = weatherPosX;
-  int y = weatherPosY;
-  int height = 100;
-
-  float dir = WxForecast[0].Winddir;
-  String txtDirection;
-
-  float div = 360/8;
-  float start = div / 2;
-
-  if(dir < start  ) {
-    txtDirection = "N";
-  } else if(dir < (div*1 + start)) {
-    txtDirection = "NE";
-  } else if(dir < (div*2 + start)) {
-    txtDirection = "E";
-  } else if(dir < (div*3 + start)) {
-    txtDirection = "SE";
-  } else if(dir < (div*4 + start)) {
-    txtDirection = "S";
-  } else if(dir < (div*5 + start)) {
-    txtDirection = "SW";
-  } else if(dir < (div*6 + start)) {
-    txtDirection = "W";
-  } else if(dir < (div*7 + start)) {
-    txtDirection = "NW";
-  } else {
-    txtDirection = "N";
-  }
-
-  float speed = WxForecast[0].Windspeed;
-  String txtSpeed;
-
-  if(speed < 1.5) {
-    txtSpeed = "Calm";
-  } else if(speed < 3.3) {
-    txtSpeed = "Gentle";
-  } else if(speed < 7.9) {
-    txtSpeed = "Moderate";
-  } else if(speed < 10.7) {
-    txtSpeed = "Fresh";
-  } else if(speed < 13.8) {
-    txtSpeed = "Hard";
-  } else if(speed < 17.1) {
-    txtSpeed = "Near gale";
-  } else if(speed < 20.7) {
-    txtSpeed = "Gale";
-  } else if(speed < 24.4) {
-    txtSpeed = "Hard gale";
-  } else if(speed < 28.4) {
-    txtSpeed = "Storm";
-  } else if(speed < 32.6) {
-    txtSpeed = "Hard storm";
-  } else {
-    txtSpeed = "Hurricane";
-  }
-
-  String windInfo = "" + String(speed,0) +"ms " + txtDirection + " " + txtSpeed;
-
-  Serial.println("Drawing wind");
-
-  display.setCursor(x-30,y+height+5); // Below temperature settings
-  display.setTextColor(GxEPD_BLACK);
-  display.setFont(fontWeather);
-
-  display.print(windInfo);
-
-}
-
-
-void readBattery() {
+void readBattery()
+{
   uint8_t percentage = 100;
 
-  //Adjust the pin below depending on what pin you measure your battery voltage on. 
-  //On LOLIN D32 boards this is build into pin 35 - for other ESP32 boards, you have to manually insert a voltage divider between the battery and an analogue pin
-  uint8_t batteryPin = 34; //FIXME
+  // Adjust the pin below depending on what pin you measure your battery voltage on.
+  // On LOLIN D32 boards this is build into pin 35 - for other ESP32 boards, you have to manually insert a voltage divider between the battery and an analogue pin
+  uint8_t batteryPin = 34; // FIXME
 
-  // Set OHM values based on the resistors used in your voltage divider http://www.ohmslawcalculator.com/voltage-divider-calculator  
+  // Set OHM values based on the resistors used in your voltage divider http://www.ohmslawcalculator.com/voltage-divider-calculator
   float R1 = 30;
-  float R2 = 100  ;
+  float R2 = 100;
 
-  float voltage = analogRead(batteryPin) / 4096.0 * (1/(R1/(R1+R2)));
-  if (voltage > 1 ) { // Only display if there is a valid reading
+  float voltage = analogRead(batteryPin) / 4096.0 * (1 / (R1 / (R1 + R2)));
+  if (voltage > 1)
+  { // Only display if there is a valid reading
     Serial.println("Voltage = " + String(voltage));
 
-    if (voltage >= 4.1) percentage = 100;
-    else if (voltage >= 3.9) percentage = 75;
-    else if (voltage >= 3.7) percentage = 50;
-    else if (voltage >= 3.6) percentage = 25;
-    else if (voltage <= 3.5) percentage = 0;
+    if (voltage >= 4.1)
+      percentage = 100;
+    else if (voltage >= 3.9)
+      percentage = 75;
+    else if (voltage >= 3.7)
+      percentage = 50;
+    else if (voltage >= 3.6)
+      percentage = 25;
+    else if (voltage <= 3.5)
+      percentage = 0;
     Serial.println("Batterylevel = " + String(percentage));
     batterylevel = percentage;
   }
-
-  
-
-
 }
