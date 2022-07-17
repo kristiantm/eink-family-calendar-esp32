@@ -11,10 +11,10 @@ If you find a solution that can avoid it, then please share and I will update th
 
 function doGet(e) {
 
-  var calendars = CalendarApp.getAllCalendars();
+  //var calendars = CalendarApp.getAllCalendars();
 
   
-  var calendars = CalendarApp.getAllCalendars();
+  var calendars = CalendarApp.getCalendarsByName("WG-Kalender");
   
   if (calendars == undefined) {
     Logger.log("No data");
@@ -32,12 +32,27 @@ function doGet(e) {
   
   Logger.log("Old: " + calendars.length + " New: " + calendars_selected.length);
 
+
   const now = new Date();
-  var start = new Date(); start.setHours(0, 0, 0);  // start at midnight
   const oneday = 24*3600000; // [msec]
-  const stop = new Date(start.getTime() + 14 * oneday); //get appointments for the next 14 days
+
   
-  var events = mergeCalendarEvents(calendars_selected, start, stop); //pull start/stop time
+
+
+  //const start = new Date(now.getTime() + oneday); 
+  const start = new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);
+  start.setHours(0, 0, 0);  // start at midnightconst 
+
+  
+  //const stop = new Date(start.getTime() + 14 * oneday); //get appointments for the next 14 days
+  const stop = new Date(now.getFullYear(),now.getMonth(),now.getDate()+14);
+
+  Logger.log(start)
+  Logger.log(stop)
+
+  
+  //var events = mergeCalendarEvents(calendars_selected, start, stop); //   pull start/stop time
+  var events = calendars_selected[0].getEvents(start, stop); //pull start/stop time
   
   
   var str = '';
@@ -59,9 +74,16 @@ function doGet(e) {
     }
     
     // Show just every entry regardless of GuestStatus to also get events from shared calendars where you haven't set up the appointment on your own
-    str += event.getStartTime() + ';' +
-    event.getTitle() +';' + 
-    event.isAllDayEvent() + ';';
+    //str += event.getStartTime() + ';' +
+    //event.getTitle() +';' + 
+    //event.isAllDayEvent() + ';';
+
+    var temp_str = event.getStartTime();
+    str += temp_str.getDate() + ' ' ;
+    str += temp_str.getMonth() + ';' ;
+
+    //str += temp_str.getFullYear() + ' ; ';
+    str += event.getTitle() +';' ;
   }
   
   return ContentService.createTextOutput(str);
