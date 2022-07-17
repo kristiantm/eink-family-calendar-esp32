@@ -36,18 +36,6 @@ All basic configuration should be managed from there - thus disregard the lines 
 const char*  ssid = "Salt_2GHz_159505";
 const char* password = "MuUY33L6SERtXG4CDT";
 
-
-String OWMapikey       = "Write OWM api here";                   // See: https://openweathermap.org/ //FIXME
-String googleAPI = "Write Google script api here";
-String Lattitude          = "Lattitude";                      // Your lattitude - use google maps //FIXME
-String Longitude          = "Longitude";                      // Your longitude - use google maps //FIXME
-
-char OWMserver[] = "api.openweathermap.org";
-
-//Set your location according to OWM locations
-String Language      = "EN";                            // NOTE: Only the weather description (not used) is translated by OWM
-String Units         = "M";                             // Use 'M' for Metric or I for Imperial 
-
 // Get time
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
@@ -67,13 +55,7 @@ const GFXfont *fontDescription = &FreeSans12pt7b;
 const GFXfont *fontSmallDescription = &FreeSans9pt7b;
 
 // Set the coordinates for the calendar - the current configuration allows for 9 events to be shown
-const int calendarPosX = 10; // Space from the left side of the e-ink screen
-const int calendarPosY = 10; // Space from the top of the e-ink-screen
 const int calendarSpacing = 50; // Space between each event entry
-
-// Set the coordinates for the weather icon and temp+wind info - right now it is placed in the upper right corner
-const int weatherPosX = 380;
-const int weatherPosY = 10;
 
 // Set orientation of calendar 0 = 0% horisontal, 1 = 90% vertical, 2 = 180% horisontal, 3 = 270% vertical
 const int calendarOrientation = 0;

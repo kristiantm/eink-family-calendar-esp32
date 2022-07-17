@@ -46,7 +46,6 @@ AutoConnectAux saveAux;
 
 extern int dayCalender[7][5];
 
-
 void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height);
 
 /* Mapping of Waveshare ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
@@ -61,18 +60,9 @@ int wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, star
 HTTPClient http;
 
 bool displayCalendar();
-void displayCalendarEntry(String eventTime, String eventName, String eventDesc);
 void deepSleepTill(int wakeHour);
-bool obtain_wx_data(const String &RequestType);
-bool DecodeWeather(WiFiClient &json, String Type);
-void drawWind();
 void readBattery();
-bool startWifiServer();
-bool loadConfig();
 bool internetWorks();
-
-// Uncomment if demomode
-const bool DEMOMODE = false;
 
 // Right now the calendarentries are limited to time and title
 struct calendarEntries
@@ -99,13 +89,8 @@ void setup()
   // SPI.begin(18, 19, 23, 5); //
 
   WiFi.setHostname("WG-Kalender");
-  // startWifiServer();
 
-  bool isConfigured = false;
   bool isWebConnected = false;
-
-  // isConfigured = loadConfig();
-  // if(isConfigured) Serial.println("Configuration loaded"); else Serial.println("Configuration not loaded");
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED)
@@ -116,12 +101,6 @@ void setup()
 
   isWebConnected = internetWorks();
 
-  /*if (isWebConnected)
-    Serial.println("Internet connected");
-  else
-    Serial.println("Internet not connected");
-*/
-  // if((isConfigured) && (isWebConnected)) {
   if ((isWebConnected))
   {
     Serial.println("Configuration exist and internet connection works - displaying calendar");
@@ -142,64 +121,12 @@ void setup()
     display.powerOff();
   }
 
-  //if ((esp_sleep_get_wakeup_cause() <= 5))
-  //{
-
-    // If the calendar is not waking from sleep, spend 5 minutes displaying the server
-    // Serial.println("Booting for the first time - showing web-portal in " + String(portalTimeoutTime) + " seconds");
-    // Serial.println("Connected on IP " + String(WiFi.localIP().toString()));
-
-    // struct timeval current_time;
-    // gettimeofday(&current_time, NULL);
-    // int target_time = current_time.tv_sec + portalTimeoutTime;
-
-    // while(current_time.tv_sec < target_time) {
-    //     portal.handleClient();
-    //   gettimeofday(&current_time, NULL);
-
-    //}
-  //}
-
-  // Deep-sleeping unitl the selected wake-hour - default 5 in the morning
-  // Serial.println("Refresh done - sleeping");
-
   deepSleepTill(HOUR_TO_WAKE);
 }
 
 // Not used, as we boot up from scratch every time we wake from deep sleep
 void loop()
 {
-}
-
-bool loadConfig()
-{
-  // Use the AutoConnect::where function to identify the referer.
-
-  bool successfull = false;
-
-  SPIFFS.begin();
-  File param = SPIFFS.open(PARAM_FILE, "r");
-  if (param)
-  {
-    successfull = elementsAux.loadElement(param, {"text", "check", "input", "radio", "select"});
-    param.close();
-  }
-
-  SPIFFS.end();
-
-  if (successfull)
-  {
-
-    OWMapikey = elementsAux.getElement("check")->value;
-    googleAPI = elementsAux.getElement("input")->value;
-    Lattitude = elementsAux.getElement("radio")->value;
-    Longitude = elementsAux.getElement("select")->value;
-    calendarRequest = "https://script.google.com/macros/s/" + googleAPI + "/exec";
-
-    Serial.println(OWMapikey + googleAPI + Lattitude + Longitude);
-  }
-
-  return successfull;
 }
 
 bool internetWorks()
@@ -226,78 +153,6 @@ void drawCentreString(const char *buf, int x, int y)
   display.print(buf);
 }
 
-bool startWifiServer()
-{
-  // Responder of root page handled directly from WebServer class.
-  server.on("/", []()
-            {
-    String content = "<p>Welcome to the ESP32 Family Calendar.</p><p>In the menu you can: <br>1) Connect the calendar to your local wifi under \"Configure new AP\", <br>2) Configure your calendar under \"Calendar\" linking to your google script, your open weather API etc. </p><p>I hope you enjoy the calendar. Feel free to leave a comment on github or instructables. </p><p>Best regards, <br>Kristian</p>.&ensp;";
-    content += AUTOCONNECT_LINK(COG_24);
-    server.send(200, "text/html", content); });
-
-  // Load a custom web page described in JSON as PAGE_ELEMENT and
-  // register a handler. This handler will be invoked from
-  // AutoConnectSubmit named the Load defined on the same page.
-  elementsAux.load(FPSTR(PAGE_ELEMENTS));
-  elementsAux.on([](AutoConnectAux &aux, PageArgument &arg)
-                 {
-    if (portal.where() == "/elements") {
-      // Use the AutoConnect::where function to identify the referer.
-      // Since this handler only supports AutoConnectSubmit called the
-      // Load, it uses the uri of the custom web page placed to
-      // determine whether the Load was called me or not.
-      SPIFFS.begin();
-      File param = SPIFFS.open(PARAM_FILE, "r");
-      if (param) {
-        aux.loadElement(param, { "text", "check", "input", "radio", "select" } );
-        param.close();
-      }
-      SPIFFS.end();
-    }
-    return String(); });
-
-  saveAux.load(FPSTR(PAGE_SAVE));
-  saveAux.on([](AutoConnectAux &aux, PageArgument &arg)
-             {
-    // You can validate input values ​​before saving with
-    // AutoConnectInput::isValid function.
-    // Verification is using performed regular expression set in the
-    // pattern attribute in advance.
-    AutoConnectInput& input = elementsAux["input"].as<AutoConnectInput>();
-    aux["validated"].value = input.isValid() ? String() : String("Input data pattern missmatched.");
-
-    // The following line sets only the value, but it is HTMLified as
-    // formatted text using the format attribute.
-    aux["caption"].value = PARAM_FILE;
-
-    SPIFFS.begin(true);
-    File param = SPIFFS.open(PARAM_FILE, "w");
-    if (param) {
-      // Save as a loadable set for parameters.
-      elementsAux.saveElement(param, { "text", "check", "input", "radio", "select" });
-      param.close();
-      // Read the saved elements again to display.
-      param = SPIFFS.open(PARAM_FILE, "r");
-      aux["echo"].value = param.readString();
-      param.close();
-    }
-    else {
-      aux["echo"].value = "SPIFFS failed to open.";
-    }
-    SPIFFS.end();
-    return String(); });
-
-  portal.join({elementsAux, saveAux});
-  config.ticker = true;
-  portal.config(config);
-  portal.begin();
-
-  return true;
-}
-
-void secondWeek()
-{
-}
 void setCalendarArray()
 {
   struct tm timeinfo;
@@ -320,9 +175,7 @@ void setCalendarArray()
   Serial.println(rest_day);
 
   int status = 0;
-  // switch (status)
-  //{
-  // case 0: // First Week of Month
+
   for (int mday = 0; mday < 7 - rest_day; mday++)
   {
     dayCalender[mday][0] = daysOfMonth[timeinfo.tm_mon - 1] - (7 - rest_day) + 1 + mday;
@@ -396,48 +249,6 @@ void setCalendarArray()
     Serial.println(mday);
     mweek++;
   }
-  // break;
-
-  // case 2: // Last week of Month
-  /* code */
-  // break;
-  //}
-
-  // Set Date Today
-  // dayCalender[convertTmWeekday[timeinfo.tm_wday]][week_cnt] = timeinfo.tm_mday;
-
-  // // Set Date days before
-  // rest_day = timeinfo.tm_mday;
-  // Serial.println("before");
-  // for (int days_before = convertTmWeekday[timeinfo.tm_wday] - 1; days_before >= 0; days_before--)
-  // {
-  //   rest_day--;
-  //   dayCalender[days_before][week_cnt] = rest_day;
-  //   Serial.print("[");
-  //   Serial.print(days_before);
-  //   Serial.print("][");
-  //   Serial.print(week_cnt);
-  //   Serial.print("] = ");
-  //   Serial.println(rest_day);
-  // }
-
-  // // Set Date days after
-  // rest_day = timeinfo.tm_mday;
-  // Serial.println("after");
-  // for (int days_after = convertTmWeekday[timeinfo.tm_wday] + 1; days_after < 7; days_after++)
-  // {
-  //   rest_day++;
-  //   dayCalender[days_after][week_cnt] = rest_day;
-  //   Serial.print("[");
-  //   Serial.print(days_after);
-  //   Serial.print("][");
-  //   Serial.print(week_cnt);
-  //   Serial.println("]");
-  //   Serial.println(rest_day);
-  // }
-
-  // for(int day_before = convertTmWeekday[timeinfo.tm_wday])
-  // dayCalender[][]
 }
 
 // Main display code - assumes that the display has been initialized
@@ -513,31 +324,6 @@ bool displayCalendar()
       count = 0;
       break;
     }
-    // count++;
-    // indexTo = response.indexOf(";",indexFrom);
-    // cutTo = indexTo;
-
-    // if(indexTo != -1) {
-    //   strBuffer = response.substring(indexFrom, cutTo);
-
-    //   indexFrom = indexTo + 1;
-
-    //   Serial.println(strBuffer);
-
-    //   if(count == 1) {
-    //     // Set entry time
-    //     calEnt[line].Day = strBuffer.substring(0,strBuffer.indexOf(" ",0)); //Exclude end date and time to avoid clutter - Format is "Wed Feb 10 2020 10:00"
-    //     calEnt[line].Month = strBuffer.substring(0,strBuffer.indexOf(";",0));
-
-    //   } else if(count == 2) {
-    //     // Set entry title
-    //     calEnt[line].Task = strBuffer;
-
-    //   } else {
-    //       count = 0;
-    //       line++;
-    //   }
-    // }
   }
 
   struct tm timeinfo;
@@ -545,24 +331,6 @@ bool displayCalendar()
   {
     Serial.println("Failed to obtain time");
   }
-
-  // String weatherIcon;
-
-  // Get weather info using the OWM API "onecall" which gives you current info, 3-hour forecast and 5-day forecast in one call. We only use the first day of the 5-day forecast
-  // bool weatherSuccess = obtain_wx_data("onecall");
-  // if(weatherSuccess) {
-  //  weatherIcon = WxForecast[0].Icon.substring(0,2);
-
-  /*Serial.println("Weatherinfo");
-  Serial.println(WxForecast[0].Icon);
-  Serial.println(WxForecast[0].High);
-  Serial.println(WxForecast[0].Winddir);
-  Serial.println(WxForecast[0].Windspeed);
-  Serial.println(WxForecast[0].Rainfall);*/
-  // }
-
-  // All data is now gathered and processed.
-  // Prepare to refresh the display with the calendar entries and weather info
 
   // Turn off text-wrapping
   display.setTextWrap(false);
@@ -582,13 +350,11 @@ bool displayCalendar()
   display.firstPage();
   do
   {
-
-
     // Print mini-test in top in white (e.g. not visible) - avoids a graphical glitch I observed in all first-lines printed
-     //display.setCursor(0, 384); //640x384
-     //display.setTextColor(GxEPD_BLACK);
-     //display.setFont(fontDescription);
-     //display.print("Graphical Flitch");
+    // display.setCursor(0, 384); //640x384
+    // display.setTextColor(GxEPD_BLACK);
+    // display.setFont(fontDescription);
+    // display.print("Graphical Flitch");
 
     // Frame Calendar
     display.fillRect(0, 0, 240, 384, GxEPD_BLACK);
@@ -668,13 +434,7 @@ bool displayCalendar()
     for (int i = 0; i < line; i++)
     {
 
-      // Print event time
-      // display.setCursor(x, y);
-      // display.setFont(fontDescription);
-      // display.print(calEnt[i].Month);
-
       // Print event title
-
       display.setCursor(x, y);
       display.setTextColor(GxEPD_BLACK);
       display.setFont(fontDescription);
