@@ -1,17 +1,6 @@
-/*
-
-This is the E-Ink Family Calendar project by Argion /  Kristian Thorsted Madsen.
-https://www.instructables.com/id/E-Ink-Family-Calendar-Using-ESP32/
-
-The project was written for a LOLIN 32 ESP32 microcontroller and a 7.5 Waveshare 800x600 e-ink display.
-Also note, that the project is dependent on you uploading a google script, to fetch and sort the calendar entries.
-
-The basic configuration now happens in the WIFI hotspot that is booting when you power on the board.
-The one exception is in case you either use a tri-colour waveshare e-ink screen, or have a different pin-mapping than in the instructions.
-In that case adjust the lines in this file, under the comment "Mapping of Waveshare ESP32 Driver Board"
-
-*/
-
+/*-------------------------------------------------------------------------------------
+-- Includes
+-------------------------------------------------------------------------------------*/
 #include <Arduino.h>
 #define ENABLE_GxEPD2_GFX 0
 #include <GxEPD2_3C.h>
@@ -22,126 +11,131 @@ In that case adjust the lines in this file, under the comment "Mapping of Wavesh
 #include "time.h"
 #include "timeheaders.h"
 #include <string>
-#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson needs version v6 or above
+#include <ArduinoJson.h> // needs version v6 or above
 #include "Wire.h"
+#include "gui/scale.hpp"
 
-#include <iconsOWM.c>
+#include "google/googleScriptRequest.hpp"
 
-#include <WiFi.h>
-#include <WebServer.h>
-#include <WifiClientSecure.h>
-#include <HTTPClient.h> // Needs to be from the ESP32 platform version 3.2.0 or later, as the previous has problems with http-redirect (google script)
+#include "gui/task.hpp"
+#include "google/timeServer.hpp"
 
-#include <SPIFFS.h>
-using WebServerClass = WebServer;
-#include <FS.h>
-#include <AutoConnect.h>
-#include <webconfig.h>
+/*-------------------------------------------------------------------------------------
+-- Variable
+-------------------------------------------------------------------------------------*/
+/*------------------------------  GDEW075T8    640x384  -----------------------------*/
+/* Development-Kit v4 */
+// GxEPD2_3C<GxEPD2_750c, GxEPD2_750c::HEIGHT> display(GxEPD2_750c(/*CS=5*/ SS, /*DC=*/17, /*RST=*/16, /*BUSY=*/4)); // 640x384
 
-WebServerClass server;
-AutoConnect portal(server);
-AutoConnectConfig config;
-AutoConnectAux elementsAux;
-AutoConnectAux saveAux;
+/* Camille Chatton E-Paper-Driver */
+GxEPD2_3C<GxEPD2_750c, GxEPD2_750c::HEIGHT> display(GxEPD2_750c(/*CS=5*/ 15, /*DC=*/27, /*RST=*/26, /*BUSY=*/25)); // 640x384
 
-extern int dayCalender[7][5];
+const double x_resolution_multipliere = display.width() / 640.0; // Layout defined for 640x384                                               // Layout defined for 640x384
+const double y_resolution_multipliere = display.height() / 384.0;
 
-void drawBitmap(const unsigned char *iconMap, int x, int y, int width, int height);
+extern int dayCalendar[7 * 5];
 
-/* Mapping of Waveshare ESP32 Driver Board - 3C is tri-color displays, BW is black and white ***** */
-// GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT/2> display(GxEPD2_750c_Z08(/*CS=*/ 15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25));
-// GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT/2> display(GxEPD2_750_T7(/*CS=*/15, /*DC=*/ 27, /*RST=*/ 26, /*BUSY=*/ 25)); // GDEW075T7 800x480
+float batterylevel = -1;
 
-// GxEPD2_BW<GxEPD2_750, GxEPD2_750::HEIGHT> display(GxEPD2_750(/*CS=5*/ SS, /*DC=*/17, /*RST=*/16, /*BUSY=*/4)); // GDEW075T8   640x384
-GxEPD2_3C<GxEPD2_750c, GxEPD2_750c::HEIGHT> display(GxEPD2_750c(/*CS=5*/ SS, /*DC=*/17, /*RST=*/16, /*BUSY=*/4));
+googleScriptRequest GSR(6);
 
-int wifi_signal, wifisection, displaysection, MoonDay, MoonMonth, MoonYear, start_time;
 
-HTTPClient http;
+const int IO16_SetCalendar = 16;
+const int IO17_Layout = 17;
+const int IO18 = 18;
+const int IO19 = 19;
+const int IO32_uC_Led = 32;
 
+RTC_DATA_ATTR int day_of_last_update = 0;
+
+#define HOUR_TO_WAKE  1        // Time ESP32 will wake and refresh at a specific hour each day - default is five in the morning
+#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
+#define S_TO_H_FACTOR 3600LL  /* Conversion factor for micro seconds to seconds */
+
+/*-------------------------------------------------------------------------------------
+-- Function Prototypes
+-------------------------------------------------------------------------------------*/
 bool displayCalendar();
+bool displaytasks();
 void deepSleepTill(int wakeHour);
 void readBattery();
-bool internetWorks();
-
-// Right now the calendarentries are limited to time and title
-struct calendarEntries
-{
-  String Month;
-  String Day;
-  String Task;
-};
-
-float batterylevel = -1; // Being set when reading battery level - used to avoid deep sleep when under 0%, and when drawing battery
+void drawCentreString(const char *buf, int x, int y);
+void initCalendarArray();
+void readChargingStatus(void);
+void print_wakeup_reason(void); 
+void showNoInternetManual(void);
 
 // Main flow of the program. It is designed to boot up, pull the info and refresh the screen, and then go back into deep sleep.
 void setup()
 {
-
+  pinMode(IO16_SetCalendar, INPUT_PULLUP); // sets the digital pin 13 as output
+  pinMode(IO17_Layout, INPUT_PULLUP);  // sets the digital pin 13 as output
+  pinMode(IO18, INPUT); // sets the digital pin 13 as output
+  pinMode(IO19, INPUT);  // sets the digital pin 13 as output
+  pinMode(IO32_uC_Led, OUTPUT);
   // Initialize board
   Serial.begin(115200);
-  Serial.println("setup");
+  delay(100);
+  Serial.println("Start FW");
+
+  // Print wakeup reason
+  print_wakeup_reason();
 
   // Initialize e-ink display
   display.init(115200);      // uses standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
   SPI.end();                 // release standard SPI pins, e.g. SCK(18), MISO(19), MOSI(23), SS(5)
-  SPI.begin(18, 12, 23, 15); // Map and init SPI pins SCK(13), MISO(12), MOSI(14), SS(15) - adjusted to the recommended PIN settings from Waveshare - note that this is not the default for most screens
-  // SPI.begin(18, 19, 23, 5); //
-
-  WiFi.setHostname("WG-Kalender");
-
-  bool isWebConnected = false;
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
+  SPI.begin(13, 12, 14, 15); // Map and init SPI pins SCK(18), MISO(12), MOSI(23), SS(15)
+  
+  
+  // I/0 Pins
+  digitalWrite(IO32_uC_Led,LOW);
+  
+  if (GSR.connectToWifi())
   {
-    delay(500);
-    Serial.print(".");
-  }
 
-  isWebConnected = internetWorks();
+    if (GSR.checkInternetConnection())
+    {
+      // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
+      //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      timeServer::getTimefromServer();
 
-  if ((isWebConnected))
+
+
+      // Read batterylevel and set batterylevel variable
+      // readBattery();
+      // readChargingStatus();
+
+      // Get Tasks from Google Calendar
+      GSR.HTTPRequest();
+      if (digitalRead(IO16_SetCalendar)) {
+         GSR.sortHTTPRequest(GSR.ID_Calendar1);
+      }
+      else {
+         GSR.sortHTTPRequest(GSR.ID_Calendar2);
+      }
+
+     
+
+      // Get and draw calendar on display
+      display.setRotation(calendarOrientation);
+      if(digitalRead(IO17_Layout)) {
+        displayCalendar();
+      }
+      else { 
+        displaytasks();
+        //task tk;
+        //tk.draw(display);
+      }
+      
+      day_of_last_update = timeServer::getTimeStruct().tm_mday;
+    }
+  } else 
   {
-    Serial.println("Configuration exist and internet connection works - displaying calendar");
-
-    // Get time from timeserver - used when going into deep sleep again to ensure that we wake at the right hour
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
-    // Read batterylevel and set batterylevel variable
-    // readBattery();
-
-    // Get and draw calendar on display
-    display.setRotation(calendarOrientation);
-    displayCalendar(); // Main flow for drawing calendar
-
-    delay(1000);
-
-    // Turn off display before deep sleep
-    display.powerOff();
+    showNoInternetManual();
   }
-
+  // Turn off display before deep sleep
+  display.powerOff();
   deepSleepTill(HOUR_TO_WAKE);
-}
-
-// Not used, as we boot up from scratch every time we wake from deep sleep
-void loop()
-{
-}
-
-bool internetWorks()
-{
-  HTTPClient http;
-  if (http.begin("script.google.com", 443))
-  {
-    http.end();
-    return true;
-  }
-  else
-  {
-    http.end();
-    return false;
-  }
 }
 
 void drawCentreString(const char *buf, int x, int y)
@@ -153,190 +147,116 @@ void drawCentreString(const char *buf, int x, int y)
   display.print(buf);
 }
 
-void setCalendarArray()
+void initCalendarArray()
 {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("Failed to obtain time");
-  }
-  int rest_day = timeinfo.tm_mday;
+  // Berechne Tag vom ersten Sonntag im Monat
 
-  // Get number of weeks befor today
+  int date_of_first_sunnday = 0;
+  int rest_day = 0;
   int week_cnt = 0;
-  while ((rest_day) > 6)
+  //Serial.print("timeServer::getTimeStruct().tm_mday  = ");
+  //Serial.println(timeServer::getTimeStruct().tm_mday);
+  //Serial.print("convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1  = ");
+  //Serial.println(convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1);
+
+  if (timeServer::getTimeStruct().tm_mday <= convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1)
   {
-    rest_day -= 7;
-    week_cnt++;
+    date_of_first_sunnday = timeServer::getTimeStruct().tm_mday + (6 - convertTmWeekday[timeServer::getTimeStruct().tm_wday]);
+    //Serial.print("date_of_first_sunnday = ");
+    //Serial.print("timeServer::getTimeStruct().tm_mday + (6 - convertTmWeekday[timeServer::getTimeStruct().tm_wday = ");
+    Serial.println(timeServer::getTimeStruct().tm_mday + (6 - convertTmWeekday[timeServer::getTimeStruct().tm_wday]));
   }
-  Serial.print("week_cnt: ");
-  Serial.println(week_cnt);
-  Serial.print("restday_cnt: ");
-  Serial.println(rest_day);
-
-  int status = 0;
-
-  for (int mday = 0; mday < 7 - rest_day; mday++)
+  else
   {
-    dayCalender[mday][0] = daysOfMonth[timeinfo.tm_mon - 1] - (7 - rest_day) + 1 + mday;
-    Serial.print("[");
-    Serial.print(mday);
-    Serial.print("][");
-    Serial.print(0);
-    Serial.print("] = ");
-    Serial.println(daysOfMonth[timeinfo.tm_mon - 1] - (7 - rest_day) + 1 + mday);
-  }
+    int date_of_sunday_before = timeServer::getTimeStruct().tm_mday - (convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1);
+    //Serial.print("date_of_sunday_before = ");
+    //Serial.print("timeServer::getTimeStruct().tm_mday - (convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1");
+    Serial.println(timeServer::getTimeStruct().tm_mday - (convertTmWeekday[timeServer::getTimeStruct().tm_wday] + 1));
 
-  for (int mday = 0; mday < rest_day; mday++)
-  {
-    dayCalender[convertTmWeekday[timeinfo.tm_wday] - mday][0] = rest_day - mday;
-    Serial.print("[");
-    Serial.print(convertTmWeekday[timeinfo.tm_wday] - mday);
-    Serial.print("][");
-    Serial.print(0);
-    Serial.print("] = ");
-    Serial.println(rest_day - mday);
+    while ((date_of_sunday_before) > 6)
+    {
+      date_of_sunday_before -= 7;
+    }
+    date_of_first_sunnday = date_of_sunday_before;
+    //Serial.print("date_of_first_sunnday: ");
+    Serial.println(date_of_first_sunnday);
   }
 
-  int mweek = 0;
-  for (int mday = rest_day + 1; mday <= rest_day + 7; mday++)
+  rest_day = 7 - date_of_first_sunnday;
+  //Serial.print("rest_day: ");
+  //Serial.println(rest_day);
+
+
+
+  int calendar_week_cnt = 0;
+  if (rest_day != 0)
   {
-    dayCalender[mweek][1] = mday;
-    Serial.print("[");
-    Serial.print(mweek);
-    Serial.print("][");
-    Serial.print(1);
-    Serial.print("] = ");
-    Serial.println(mday);
-    mweek++;
+    for (int mday = 0; mday < rest_day; mday++)
+    {
+      // Spezcial December
+      if (timeServer::getTimeStruct().tm_mon == 0) {
+        dayCalendar[mday + calendar_week_cnt] = ((daysOfMonth[11] - rest_day) + 1 + mday);
+      } else {
+        dayCalendar[mday + calendar_week_cnt] = ((daysOfMonth[timeServer::getTimeStruct().tm_mon - 1] - rest_day) + 1 + mday);
+      }
+      Serial.print("[");
+      Serial.print(mday + calendar_week_cnt);
+      Serial.print("] = ");
+      Serial.println(((daysOfMonth[11] - rest_day) + 1 + mday));
+    }
+
+
+    int inc_day_cnt=1;
+    for (int mday = rest_day; mday < 7; mday++)
+    {
+      dayCalendar[mday + calendar_week_cnt] = inc_day_cnt;
+      Serial.print("[");
+      Serial.print(mday + calendar_week_cnt);
+      Serial.print("] = ");
+      Serial.println(inc_day_cnt);
+      inc_day_cnt++;
+    }
+    calendar_week_cnt = 7;
+  }
+  else
+  {
+    calendar_week_cnt = 0;
   }
 
-  mweek = 0;
-  for (int mday = rest_day + 7 + 1; mday <= rest_day + 14; mday++)
+  for (int mday = date_of_first_sunnday + 1; mday <= daysOfMonth[timeServer::getTimeStruct().tm_mon]; mday++)
   {
-    dayCalender[mweek][2] = mday;
+    dayCalendar[calendar_week_cnt] = mday;
     Serial.print("[");
-    Serial.print(mweek);
-    Serial.print("][");
-    Serial.print(2);
-    Serial.print("] = ");
-    Serial.println(mday);
-    mweek++;
-  }
-
-  mweek = 0;
-  for (int mday = rest_day + 14 + 1; mday <= rest_day + 21; mday++)
-  {
-    dayCalender[mweek][3] = mday;
-    Serial.print("[");
-    Serial.print(mweek);
-    Serial.print("][");
-    Serial.print(3);
-    Serial.print("] = ");
-    Serial.println(mday);
-    mweek++;
-  }
-
-  mweek = 0;
-  for (int mday = rest_day + 21 + 1; mday <= daysOfMonth[timeinfo.tm_mon]; mday++)
-  {
-    dayCalender[mweek][4] = mday;
-    Serial.print("[");
-    Serial.print(mweek);
-    Serial.print("][");
-    Serial.print(4);
+    Serial.print(calendar_week_cnt);
     Serial.print("] = ");
     Serial.println(mday);
-    mweek++;
+    
+    if(calendar_week_cnt>=35) {
+      break;
+    } else {
+      calendar_week_cnt++;
+    }
+  }
+  rest_day = 35 - calendar_week_cnt;
+  for (int mday = 1; mday <= rest_day; mday++)
+  {
+    dayCalendar[calendar_week_cnt] = mday;
+    Serial.print("[");
+    Serial.print(calendar_week_cnt);
+    Serial.print("] = ");
+    Serial.println(mday);
+    calendar_week_cnt++;
   }
 }
-
 // Main display code - assumes that the display has been initialized
 bool displayCalendar()
 {
-
-  // Getting calendar from your published google script
-  Serial.println("Getting calendar");
-  Serial.println(calendarRequest);
-
-  http.end();
-  http.setTimeout(20000);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  if (!http.begin(calendarRequest))
-  {
-    Serial.println("Cannot connect to google script");
-    return false;
-  }
-
-  Serial.println("Connected to google script");
-  int returnCode = http.GET();
-  Serial.print("Returncode: ");
-  Serial.println(returnCode);
-  String response = http.getString();
-  Serial.print("Response: ");
-  Serial.println(response);
-
-  int indexFrom = 0;
-  int indexTo = 0;
-  int cutTo = 0;
-  int nextSemiq = 0;
-  int cutDateIndex = 0;
-
-  String strBuffer = "";
-
-  int count = 0;
-  int line = 0;
-  struct calendarEntries calEnt[calEntryCount];
-
-  Serial.println("IntexFrom");
-  indexFrom = response.length() - 1;
-
-  // Fill calendarEntries with entries from the get-request
-  while (nextSemiq >= 0 && line < calEntryCount)
-  {
-    nextSemiq = response.indexOf(";", 0);
-    strBuffer = response.substring(0, nextSemiq);
-    response = response.substring(nextSemiq + 1, indexFrom);
-
-    switch (count)
-    {
-    case 0:
-      cutDateIndex = strBuffer.indexOf(" ", 0);
-      calEnt[line].Day = strBuffer.substring(0, cutDateIndex); // Exclude end date and time to avoid clutter - Format is "Wed Feb 10 2020 10:00"
-      Serial.print("Day: ");
-      Serial.println(calEnt[line].Day);
-
-      calEnt[line].Month = strBuffer.substring(cutDateIndex);
-      Serial.print("Mont: ");
-      Serial.println(calEnt[line].Month);
-      count = 1;
-      break;
-
-    case 1:
-      calEnt[line].Task = strBuffer;
-      Serial.print("Task: ");
-      Serial.println(calEnt[line].Task);
-      count = 0;
-      line++;
-      break;
-
-    default:
-      count = 0;
-      break;
-    }
-  }
-
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("Failed to obtain time");
-  }
-
+  /*-----------------------------------
+  -- Init E-Paper
+  -----------------------------------*/
   // Turn off text-wrapping
   display.setTextWrap(false);
-
   display.setRotation(calendarOrientation);
-
   // Clear the screen with white using full window mode. Not strictly nessecary, but as I selected to use partial window for the content, I decided to do a full refresh first.
   display.setFullWindow();
   display.firstPage();
@@ -344,123 +264,283 @@ bool displayCalendar()
   {
     display.fillScreen(GxEPD_WHITE);
   } while (display.nextPage());
-
   // Print the content on the screen - I use a partial window refresh for the entire width and height, as I find this makes a clearer picture
   display.setPartialWindow(0, 0, display.width(), display.height());
+
+  /*-----------------------------------
+  -- Draw E-Paper
+  -----------------------------------*/
   display.firstPage();
   do
   {
-    // Print mini-test in top in white (e.g. not visible) - avoids a graphical glitch I observed in all first-lines printed
-    // display.setCursor(0, 384); //640x384
-    // display.setTextColor(GxEPD_BLACK);
-    // display.setFont(fontDescription);
-    // display.print("Graphical Flitch");
-
-    // Frame Calendar
-    display.fillRect(0, 0, 240, 384, GxEPD_BLACK);
+    /*-------------------------------------------------------------------------------------
+    -- Kalenderübersicht
+    -------------------------------------------------------------------------------------*/
+    /*-- Titel Kalenderübersicht --*/
+    display.fillRoundRect(scale::x_resMtp(0, display.width()), scale::y_resMtp(0, display.height()), scale::x_resMtp(240, display.width()), scale::y_resMtp(170, display.height()), 10, GxEPD_BLACK);
     display.setTextColor(GxEPD_WHITE);
 
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-      Serial.println("Failed to obtain time");
-    }
-
+    /*-- Wochentag --*/
     display.setFont(fontTitle);
-    drawCentreString(weekdayNumbers[timeinfo.tm_wday], 120, 50);
+    drawCentreString(weekdayNumbers[timeServer::getTimeStruct().tm_wday], scale::x_resMtp(120, display.width()), scale::y_resMtp(50, display.height()));
 
+    /*-- Tag --*/
     display.setFont(fontMassiveTitle);
-    drawCentreString(String(timeinfo.tm_mday).c_str(), 120, 105);
+    drawCentreString(String(timeServer::getTimeStruct().tm_mday).c_str(), scale::x_resMtp(120, display.width()), scale::y_resMtp(105, display.height()));
 
+    /*-- Monat + Jahr --*/
     display.setFont(fontDescription);
-    String monthYear = monthNumbers[timeinfo.tm_mon];
+    String monthYear = monthNumbers[timeServer::getTimeStruct().tm_mon];
     monthYear += " ";
-    monthYear += (timeinfo.tm_year + 1900);
-    drawCentreString((monthYear).c_str(), 120, 150);
+    monthYear += (timeServer::getTimeStruct().tm_year + 1900);
+    drawCentreString((monthYear).c_str(), scale::x_resMtp(120, display.width()), scale::y_resMtp(150, display.height()));
 
-    const int dx = 30;
-    const int dy = 32;
-    const int x_Start = 28;
+    /*-- Wochentage im Kalender --*/
+    const int dx = scale::x_resMtp(30, display.width());
+    const int dy = scale::y_resMtp(32, display.height());
+    const int x_Start = scale::x_resMtp(28, display.width());
     int x = x_Start;
-    int y = 230;
+    int y = scale::y_resMtp(230, display.height());
 
     display.setFont(fontSmallDescription);
-    display.setTextColor(GxEPD_WHITE);
-    display.setCursor(10, 180);
+    display.setTextColor(GxEPD_BLACK);
+    display.setCursor(scale::x_resMtp(10, display.width()), scale::y_resMtp(180, display.height()));
     for (int weekday = 0; weekday < 7; weekday++)
     {
-      drawCentreString(String(weekdayNumbersShort[weekday]).c_str(), x, 200);
+      drawCentreString(String(weekdayNumbersShort[weekday]).c_str(), x, scale::y_resMtp(200, display.height()));
       x += dx;
     }
 
-    setCalendarArray();
+    /*-- Tage im Kalender --*/
+    initCalendarArray();
     x = x_Start;
+    // bool marked_set = false;
     for (int column = 0; column < 5; column++)
     {
       for (int row = 0; row < 7; row++)
       {
-        if (dayCalender[row][column] == timeinfo.tm_mday)
+        if (dayCalendar[row + 7 * column] == timeServer::getTimeStruct().tm_mday)
         {
-          display.setTextColor(GxEPD_RED);
-          display.fillRoundRect(x - 7, y - 15, 20, 20, 5, GxEPD_WHITE);
+          if ((column == 0) && (dayCalendar[row + 7 * column] > 24))
+          {
+          }
+          else if ((column == 4) && (dayCalendar[row + 7 * column] < 6))
+          {
+          }
+          else
+          {
+            display.setTextColor(GxEPD_WHITE);
+            display.fillRoundRect(x - scale::x_resMtp(7, display.width()), y - scale::y_resMtp(15, display.height()), scale::x_resMtp(20, display.width()), scale::y_resMtp(20, display.height()), 5, GxEPD_RED);
+          }
         }
         else
         {
-          display.setTextColor(GxEPD_WHITE);
+          display.setTextColor(GxEPD_BLACK);
         }
 
-        drawCentreString(String(dayCalender[row][column]).c_str(), x, y);
+        drawCentreString(String(dayCalendar[row + 7 * column]).c_str(), x, y);
         x += dx;
       }
       y += dy;
       x = x_Start;
     }
 
-    // Frame Tasks
-    display.fillRect(250, 5, 400, 55, GxEPD_BLACK);
+    /*-------------------------------------------------------------------------------------
+    -- Taskübersicht
+    -------------------------------------------------------------------------------------*/
+    /*-- Titel Tasksübersicht --*/
+    display.fillRoundRect(scale::x_resMtp(250, display.width()), scale::y_resMtp(5, display.height()), scale::x_resMtp(390, display.width()), scale::y_resMtp(55, display.height()), 10, GxEPD_BLACK);
     display.setTextColor(GxEPD_WHITE);
-    display.setCursor(265, 45);
+    display.setCursor(scale::x_resMtp(265, display.width()), scale::y_resMtp(45, display.height()));
     display.setFont(fontTitle);
     display.print("Tasks");
 
-    display.setTextColor(GxEPD_BLACK);
-    x = 260;
-    y = 70;
+    /*-- Event --*/
+    x = scale::x_resMtp(260, display.width());
+    y = scale::y_resMtp(105, display.height()); // Set position for the first calendar entry
 
-    // Set position for the first calendar entry
-    y = y + 35;
-
-    // Print calendar entries from first [0] to the last fetched [line-1] - in case there is fewer events than the maximum allowed
-    for (int i = 0; i < line; i++)
+    for (int i = 0; i < GSR.getEntryCount(); i++)
     {
+      if(GSR.getTask(i) != "") {
+        // Print Event Title
+        display.setCursor(x, y);
+        display.setTextColor(GxEPD_BLACK);
+        display.setFont(fontDescription);
+        display.print(GSR.getTask(i));
+        }
 
-      // Print event title
-      display.setCursor(x, y);
-      display.setTextColor(GxEPD_BLACK);
-      display.setFont(fontDescription);
-      display.print(calEnt[i].Task);
+        // Print Event Date
+        if(GSR.getDay(i) != "") {
+          display.fillRect(scale::x_resMtp(570, display.width()), y - scale::y_resMtp(15, display.height()), scale::x_resMtp(70, display.width()), scale::y_resMtp(25, display.height()), GxEPD_BLACK);
+          display.setCursor(scale::x_resMtp(580, display.width()), y + scale::y_resMtp(5, display.height()));
+          display.setFont(fontSmallDescription);
+          display.setTextColor(GxEPD_WHITE);
+          String TaskDate = GSR.getDay(i) + " " + monthNumbersShort[(GSR.getMonth(i)).toInt()];
+          display.print(TaskDate);
 
-      display.fillRect(570, y - 15, 70, 25, GxEPD_BLACK);
-      display.setCursor(580, y + 5);
-      display.setFont(fontSmallDescription);
-      display.setTextColor(GxEPD_WHITE);
-      String TaskDate = calEnt[i].Day + " " + monthNumbersShort[(calEnt[i].Month).toInt()];
-      display.print(TaskDate);
+          // Heutiges Event markieren
+          if (timeServer::getTimeStruct().tm_mday == (GSR.getDay(i)).toInt())
+          {
+            display.fillRect(scale::x_resMtp(570, display.width()), y - scale::y_resMtp(35, display.height()), scale::x_resMtp(70, display.width()), scale::y_resMtp(25, display.height()), GxEPD_RED);
+            display.setCursor(scale::x_resMtp(580, display.width()), y - scale::y_resMtp(15, display.height()));
+            display.setFont(fontSmallDescription);
+            display.setTextColor(GxEPD_WHITE);
+            display.print("Heute");
+          }
 
-      if (timeinfo.tm_mday == (calEnt[i].Day).toInt())
-      {
-        display.fillRect(570, y - 35, 70, 25, GxEPD_RED);
-        display.setCursor(580, y - 15);
+          // Morgiges Event markieren
+          if ((GSR.getTask(i) == "Hauskehricht") || (GSR.getTask(i) == "Altpapiersammlung"))
+          {
+            if ((timeServer::getTimeStruct().tm_mday == ((GSR.getDay(i)).toInt() - 1)) || ((timeServer::getTimeStruct().tm_mday == daysOfMonth[timeServer::getTimeStruct().tm_mon]) && (GSR.getDay(i) == "1")))
+            {
+              display.fillRect(scale::x_resMtp(570, display.width()), y - scale::y_resMtp(35, display.height()), scale::x_resMtp(70, display.width()), scale::y_resMtp(25, display.height()), GxEPD_RED);
+              display.setCursor(scale::x_resMtp(575, display.width()), y - scale::y_resMtp(15, display.height()));
+              display.setFont(fontSmallDescription);
+              display.setTextColor(GxEPD_WHITE);
+              display.print("Morgen");
+            }
+          }
+          
+        }
+        // Add Line between Tasks
+        display.fillRect(x, y + scale::y_resMtp(10, display.height()), scale::x_resMtp(380, display.width()), scale::y_resMtp(2, display.height()), GxEPD_BLACK);
+        
+      // Prepare y-position for next event entry
+      y = y + scale::y_resMtp(50, display.height());
+    }
+
+  } while (display.nextPage());
+
+ return true;
+}
+
+bool displaytasks()
+{
+  /*-----------------------------------
+  -- Init E-Paper
+  -----------------------------------*/
+  // Turn off text-wrapping
+  display.setTextWrap(false);
+  display.setRotation(calendarOrientation);
+  // Clear the screen with white using full window mode. Not strictly nessecary, but as I selected to use partial window for the content, I decided to do a full refresh first.
+  display.setFullWindow();
+  display.firstPage();
+  do
+  {
+    display.fillScreen(GxEPD_WHITE);
+  } while (display.nextPage());
+  // Print the content on the screen - I use a partial window refresh for the entire width and height, as I find this makes a clearer picture
+  display.setPartialWindow(0, 0, display.width(), display.height());
+  
+  /*-----------------------------------
+  -- Draw E-Paper
+  -----------------------------------*/
+  display.firstPage();
+  do
+  {
+    /*-------------------------------------------------------------------------------------
+    -- Kalenderübersicht
+    -------------------------------------------------------------------------------------*/
+    /*-- Roter Rand --*/
+    //display.fillRoundRect(scale::x_resMtp(0,display.width()), 0, scale::x_resMtp(640,display.width()), scale::y_resMtp(65, display.height()), 10, GxEPD_RED);
+    display.fillRect(scale::x_resMtp(0,display.width()), 0, scale::x_resMtp(640,display.width()), scale::y_resMtp(60, display.height()), GxEPD_BLACK);
+    
+    /*-- Titel --*/
+    display.setFont(fontTitle);
+    display.setTextColor(GxEPD_WHITE);
+    //drawCentreString("Tasks", scale::x_resMtp(40,display.width()), scale::y_resMtp(52, display.height())); //640x384
+
+    /*-- Tag --*/
+    display.setFont(fontMassiveTitle);
+    display.setTextColor(GxEPD_WHITE);
+    drawCentreString(String(timeServer::getTimeStruct().tm_mday).c_str(), scale::x_resMtp(560,display.width()), scale::y_resMtp(44, display.height())); //640x384
+
+    /*-- Monat --*/
+    display.setFont(fontDescription);
+    drawCentreString(monthNumbersShort[timeServer::getTimeStruct().tm_mon], scale::x_resMtp(610,display.width()), scale::y_resMtp(27, display.height()));
+
+    /*-- Jahr --*/
+    display.setFont(fontSmallDescription);
+    String year = "";
+    year += (timeServer::getTimeStruct().tm_year + 1900);
+    drawCentreString((year).c_str(), scale::x_resMtp(610,display.width()), scale::y_resMtp(47, display.height()));
+
+    /*-- Wochentag --*/
+    display.setFont(fontTitle);
+    display.setTextColor(GxEPD_WHITE);
+    //drawCentreString(weekdayNumbers[timeServer::getTimeStruct().tm_wday], scale::x_resMtp(450,display.width()), scale::y_resMtp(55, display.height()));
+    //drawCentreString(weekdayNumbers[timeServer::getTimeStruct().tm_wday], scale::x_resMtp(80,display.width()), scale::y_resMtp(52, display.height()));
+    display.setCursor(7, 42);
+    display.print(weekdayNumbers[timeServer::getTimeStruct().tm_wday]);
+
+    /*-------------------------------------------------------------------------------------
+    -- Taskübersicht
+    -------------------------------------------------------------------------------------*/
+    int x = 7; int y = 100;
+    for (int i = 0; i < GSR.getEntryCount(); i++)
+    {
+      String task_description = GSR.getTask(i);
+      if(task_description != "") {
+        if(task_description.length() >= 45) 
+        {
+          String sub_str1 = task_description.substring(0, 45);
+          String sub_str2 = task_description.substring(45, task_description.length());
+          
+          display.setCursor(x, y);
+          display.setTextColor(GxEPD_BLACK);
+          display.setFont(fontDescription);
+          display.print(sub_str1);
+          
+          y = y + scale::y_resMtp(25, display.height());
+          display.setCursor(x, y);
+          display.print(sub_str2);
+        } else {
+          // Print Event Title
+          display.setCursor(x, y);
+          display.setTextColor(GxEPD_BLACK);
+          display.setFont(fontDescription);
+          display.print(GSR.getTask(i));
+        }
+        // Add Line between Tasks
+        display.fillRect(x, y + scale::y_resMtp(10, display.height()), scale::x_resMtp(640,display.width()), scale::y_resMtp(2, display.height()), GxEPD_BLACK);
+      }
+      
+      // Print Event Date
+      if( GSR.getDay(i) != "") {
+        display.fillRect(scale::x_resMtp(570,display.width()), y - scale::y_resMtp(15, display.height()), scale::x_resMtp(70,display.width()), scale::y_resMtp(25, display.height()), GxEPD_BLACK);
+        display.setCursor(scale::x_resMtp(580,display.width()), y + scale::y_resMtp(5, display.height()));
         display.setFont(fontSmallDescription);
         display.setTextColor(GxEPD_WHITE);
-        display.print("Heute");
+        String TaskDate = GSR.getDay(i) + " " + monthNumbersShort[(GSR.getMonth(i)).toInt()];
+        display.print(TaskDate);
+
+        // Heutiges Event markieren
+        if (timeServer::getTimeStruct().tm_mday == (GSR.getDay(i)).toInt())
+        {
+          display.fillRect(scale::x_resMtp(570,display.width()), y - scale::y_resMtp(35, display.height()), scale::x_resMtp(70,display.width()), scale::y_resMtp(25, display.height()), GxEPD_RED);
+          display.setCursor(scale::x_resMtp(580,display.width()), y - scale::y_resMtp(15, display.height()));
+          display.setFont(fontSmallDescription);
+          display.setTextColor(GxEPD_WHITE);
+          display.print("Heute");
+        }
+
+        // Morgiges Event markieren
+        if ((GSR.getTask(i) == "Hauskehricht") || (GSR.getTask(i) == "Altpapiersammlung"))
+        {
+          if ((timeServer::getTimeStruct().tm_mday == ((GSR.getDay(i)).toInt() - 1)) || ((timeServer::getTimeStruct().tm_mday == daysOfMonth[timeServer::getTimeStruct().tm_mon]) && (GSR.getDay(i) == "1")))
+          {
+            display.fillRect(scale::x_resMtp(570,display.width()), y - scale::y_resMtp(35, display.height()), scale::x_resMtp(70,display.width()), scale::y_resMtp(25, display.height()), GxEPD_RED);
+            display.setCursor(scale::x_resMtp(575,display.width()), y - scale::y_resMtp(15, display.height()));
+            display.setFont(fontSmallDescription);
+            display.setTextColor(GxEPD_WHITE);
+            display.print("Morgen");
+          }
+        }
       }
-
-      // Add Line between Tasks
-      display.fillRect(x, y + 10, 380, 2, GxEPD_BLACK);
-
+      
+      
       // Prepare y-position for next event entry
-      y = y + calendarSpacing;
+      y = y + scale::y_resMtp(50, display.height());
     }
 
   } while (display.nextPage());
@@ -468,46 +548,124 @@ bool displayCalendar()
   return true;
 }
 
+void showNoInternetManual() {
+  /*-----------------------------------
+  -- Init E-Paper
+  -----------------------------------*/
+  // Turn off text-wrapping
+  display.setTextWrap(false);
+  display.setRotation(calendarOrientation);
+  // Clear the screen with white using full window mode. Not strictly nessecary, but as I selected to use partial window for the content, I decided to do a full refresh first.
+  display.setFullWindow();
+  display.firstPage();
+  
+  // Print the content on the screen - I use a partial window refresh for the entire width and height, as I find this makes a clearer picture
+  display.setPartialWindow(0, 0, display.width(), display.height());
+
+  /*-----------------------------------
+  -- Draw E-Paper
+  -----------------------------------*/
+  display.firstPage();
+  do
+  {
+    
+      display.setCursor(scale::x_resMtp(60, display.width()),  scale::y_resMtp(30, display.height()));
+      display.setTextColor(GxEPD_RED);
+      display.setFont(fontTitle);
+      display.print("Ke Internetvrbindig vorhande...");
+      display.setTextColor(GxEPD_BLACK);
+      display.setFont(fontDescription);
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(90, display.height()));
+      display.print("Wenn grad mau Zit hesch, drueck doch dr Blau Knopf uf dr ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(110, display.height()));
+      display.print("Ruecksite vo dim E-Paper-Kalender. Sobaud de drueckt ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(130, display.height()));
+      display.print("hesch, blibe dr 3 Minute, zum z Wifi ihzrichte.");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(150, display.height()));
+      display.print("Gang uf dim Smartphone, Tablet oder Laptop ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(170, display.height()));
+      display.print("ih dini Wifi-Ihstellige, aus wettsch di mitemne Wifi ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(190, display.height()));
+      display.print("vrbinde und suechsch nach <E-Paper-Calendar>. Mit ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(210, display.height()));
+      display.print("dem vrbindisch di ize und de geit outomatisch e Site uf,");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(230, display.height()));
+      display.print("wo de uf <Configure WiFi> kliksch. Iz vrbindisch di ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(250, display.height()));
+      display.print("mitem WiFi wo de ou für anderi Graet bruchsch, gisch z ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(270, display.height()));
+      display.print("Passowort ih und de de het die E-Paper Kalender wieder");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(290, display.height()));
+      display.print("Internet. Vrgiss nid dr Switch <Position> uf dr ungersite ");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(310, display.height()));
+      display.print("vom E-Paper Kalender wieder uf OFF z schiebe!");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(330, display.height()));
+      display.print("");
+      display.setCursor(scale::x_resMtp(10, display.width()),  scale::y_resMtp(350, display.height()));
+      display.print("Fauses doch nid klappt: 078 794 02 54");
+
+  } while (display.nextPage());
+  
+}
+
+// Sleep until set wa§ke-hour
+void print_wakeup_reason() {
+    esp_sleep_wakeup_cause_t wakeup_reason;
+
+    wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    switch (wakeup_reason)
+    {
+    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
+    default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+    }
+}
+
 // Sleep until set wake-hour
 void deepSleepTill(int wakeHour)
 {
+  uint64_t hour_till_wakeup = 0;
+
+  if(day_of_last_update == timeServer::getTimeStruct().tm_mday) {
+    
+    // Calendar was updated today
+    if (timeServer::getTimeStruct().tm_hour < wakeHour)
+    {
+      hour_till_wakeup = 24 * S_TO_H_FACTOR * uS_TO_S_FACTOR;
+    }
+    else
+    {
+      hour_till_wakeup = ((24 - (timeServer::getTimeStruct().tm_hour+1)) + wakeHour) * S_TO_H_FACTOR * uS_TO_S_FACTOR;
+    }
+
+  } else {
+    // Calendar was not updated today, wakeup in one hour
+    hour_till_wakeup = S_TO_H_FACTOR* uS_TO_S_FACTOR;
+    
+  }
   // If battery is too low (see getBattery code), enter deepSleep and do not wake up
-  if (batterylevel == 0)
-  {
-    esp_deep_sleep_start();
-  }
-
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("Failed to obtain time");
-  }
-
-  int wakeInSec = 0;
-
-  if (timeinfo.tm_hour < wakeHour)
-  {
-    wakeInSec = (wakeHour - timeinfo.tm_hour - 1) * 60 * 60;
-  }
-  else
-  {
-    wakeInSec = (wakeHour - timeinfo.tm_hour + 24 - 1) * 60 * 60;
-  }
-
-  // Add minutes
-  wakeInSec = wakeInSec + (60 - timeinfo.tm_min) * 60;
-
-  // Add seconds
-  wakeInSec = wakeInSec + (60 - timeinfo.tm_sec);
-
-  Serial.print("Wake in sec: ");
-  Serial.println(wakeInSec);
-
-  esp_sleep_enable_timer_wakeup(wakeInSec * uS_TO_S_FACTOR);
+  //if (batterylevel == 0)
+  //{
+  //  esp_deep_sleep_start();
+  //}
+  
+  Serial.print("Next wakeup in: ");
+  Serial.print((hour_till_wakeup / S_TO_H_FACTOR ) / uS_TO_S_FACTOR);
+  Serial.println("h");
+	
+  esp_sleep_enable_timer_wakeup(hour_till_wakeup);
+  //esp_sleep_enable_timer_wakeup(60*60* uS_TO_S_FACTOR);
   Serial.flush();
   esp_deep_sleep_start();
 }
 
+void readChargingStatus(void)
+{
+}
 void readBattery()
 {
   uint8_t percentage = 100;
@@ -538,4 +696,8 @@ void readBattery()
     Serial.println("Batterylevel = " + String(percentage));
     batterylevel = percentage;
   }
+}
+// Not used, as we boot up from scratch every time we wake from deep sleep
+void loop()
+{
 }

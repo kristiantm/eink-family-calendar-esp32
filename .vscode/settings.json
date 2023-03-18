@@ -11,6 +11,7 @@
         "vector": "cpp",
         "initializer_list": "cpp",
         "regex": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "string_view": "cpp"
     }
 }
