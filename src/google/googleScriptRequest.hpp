@@ -48,16 +48,7 @@ private:
     HTTPClient http;
     const String calendarServer = "script.google.com"; 
 
-    //--------------------------------------------------------------------------------------------------------------------camillemariuschatton@gmail.com
-    //const String calendarRequest = "https://script.google.com/macros/s/AKfycbwBYsxIAGPR1QKnEnX5qJd4WZEZDEz-V8rg9x1G1Pp2UK_zPD1AlJfAYBP-YqgrTyAIPw/exec";
-
-    //--------------------------------------------------------------------------------------------------------------------Anna-Sophia
-    //const String calendarRequest = "https://script.google.com/macros/s/AKfycbyWYotcy0Nhgjdklg1V9KFipkg6WVjSWMrvVGAN-tlFXle59roMdjF-SBQeAmayi97Ehg/exec";
-
-    //--------------------------------------------------------------------------------------------------------------------jaya.hilfiker@gmail.com
-    const String calendarRequest = "https://script.google.com/macros/s/AKfycbyJHtcQZLbk-lCRNyZeRrgjASHDZR8l9YuUWMiO3Q6dR_dShYpZSUILL0445hbNSXO0xA/exec";
-
-
+   const String calendarRequest = ""
 
        
 };
