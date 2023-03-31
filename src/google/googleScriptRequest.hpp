@@ -37,8 +37,8 @@ public:
 
 private:
     WiFiManager manager; 
-    const char*  ssid = "Salt_2GHz_159505";
-    const char* password = "MuUY33L6SERtXG4CDT";
+    const char*  ssid = "";
+    const char* password = "";
 
     String response;
 
