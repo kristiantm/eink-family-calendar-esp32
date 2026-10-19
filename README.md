@@ -40,7 +40,7 @@ Pin-setup:
 
 1. Go to [script.google.com](https://script.google.com), create a new project and paste in `googleScript.gs`.
 2. Check that Project Settings has "Enable Chrome V8 runtime" ticked - Google turned off the old Rhino runtime in January 2026, and scripts still on it no longer run.
-3. Optional, but recommended: under Project Settings > Script Properties, add a property named `SCRIPT_KEY` with a random text (letters and digits). Without it, anyone who knows the URL can read your calendar entries. As the key lives there and not in the code, you never need to edit `googleScript.gs` - just paste in new versions.
+3. Optional, but recommended: set `SCRIPT_KEY` at the top of the script to a random text (letters and digits). Without it, anyone who knows the URL can read your calendar entries. Alternatively, leave it empty and add it under Project Settings > Script Properties as a property named `SCRIPT_KEY` - then you can paste in new versions of the script without editing them. If both are set, the one in the script is used.
 4. Deploy > New deployment > Web app, execute as "Me", access "Anyone". Copy the web app URL.
 
 When you change the script later: save it (Ctrl+S) first, as a deployment uses the last saved version. Then use Deploy > Manage deployments > edit (pencil) > Version: "New version" - that keeps the same URL, so the calendar needs no change. Archive old deployments you no longer use, as they keep serving the code they were made with - including an old script without a key.

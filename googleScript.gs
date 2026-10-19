@@ -5,8 +5,9 @@ Have followed his example, and added multi-calendar support, where all events fr
 
 You need to put this up as a public script (Deploy > New deployment > Web app, execute as "Me", access "Anyone").
 Please note that this will expose your calendar entries to anyone who knows the URL - there is no input or write access.
-To protect it, add a script property (Project Settings > Script Properties) named SCRIPT_KEY with a random text (letters and digits),
-and enter the same key in the calendar's web-portal. Keeping the key there means you never have to edit this file - just paste in new versions.
+To protect it, set SCRIPT_KEY below to a random text (letters and digits), and enter the same key in the calendar's web-portal.
+Alternatively, leave SCRIPT_KEY empty and add a script property (Project Settings > Script Properties) named SCRIPT_KEY instead -
+then you can paste in new versions of this script without editing them. If both are set, the one below is used.
 
 The script must use the V8 runtime (Project Settings > "Enable Chrome V8 runtime"), as Google turned off the old Rhino runtime in 2026.
 After changing the script, save it (a deployment uses the last saved version) and use Deploy > Manage deployments > edit > Version: "New version".
@@ -21,14 +22,15 @@ spelled out (e.g. "Dalsgaard", "Maerz").
 
 */
 
+const SCRIPT_KEY = '';   // Optional - e.g. 'k8Hq2xLm9Pz4' - or set it as a script property, see above
 const DAYS_AHEAD = 14;   // Get appointments for the next 14 days
 const MAX_EVENTS = 10;   // Default number of events returned - the calendar asks for the number it can show
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
 
-  // The key is a script property, so the script can be replaced with a new version without editing it
-  const scriptKey = PropertiesService.getScriptProperties().getProperty('SCRIPT_KEY');
+  // The key is either set in this file, or as a script property - which lets you paste in new versions without editing them
+  const scriptKey = SCRIPT_KEY || PropertiesService.getScriptProperties().getProperty('SCRIPT_KEY');
   if (scriptKey && params.key !== scriptKey) {
     return json_({ error: 'wrong or missing key' });
   }
