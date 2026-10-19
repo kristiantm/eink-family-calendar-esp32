@@ -4,3 +4,4 @@
 .vscode/launch.json
 .vscode/ipch
 src/ESP32.code-workspace
+src/.vscode/

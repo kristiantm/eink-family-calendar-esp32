@@ -170,7 +170,7 @@ void setup() {
   if (refreshed || failedAttempts >= failedRetryCount) {
     failedAttempts = 0;
 
-    // Deep-sleeping unitl the selected wake-hour - default 5 in the morning
+    // Deep-sleeping until the selected wake-hour - default 5 in the morning
     Serial.println("Refresh done - sleeping");
     deepSleepTill(HOUR_TO_WAKE);
   }
@@ -436,7 +436,7 @@ void drawCalendar(bool timeKnown, const struct tm& timeinfo, bool weatherSuccess
 
   display.setRotation(calendarOrientation);
 
-  // Clear the screen with white using full window mode. Not strictly nessecary, but as I selected to use partial window for the content, I decided to do a full refresh first.
+  // Clear the screen with white using full window mode. Not strictly necessary, but as I selected to use partial window for the content, I decided to do a full refresh first.
   display.setFullWindow();
   display.firstPage();
   do {
@@ -465,7 +465,7 @@ void drawCalendar(bool timeKnown, const struct tm& timeinfo, bool weatherSuccess
     display.setFont(fontMainTitle);
     display.print(greeting);
 
-    // If fetching the weather was a succes, then print the weather
+    // If fetching the weather was a success, then print the weather
     if(weatherSuccess) {
       drawWeather();
     }

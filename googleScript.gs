@@ -8,7 +8,8 @@ Please note that this will expose your calendar entries to anyone who knows the 
 To protect it, set SCRIPT_KEY below to a random text (letters and digits) and enter the same key in the calendar's web-portal.
 
 The script must use the V8 runtime (Project Settings > "Enable Chrome V8 runtime"), as Google turned off the old Rhino runtime in 2026.
-Remember to make a new deployment after changing the script - the calendar needs the new web app URL.
+After changing the script, save it (a deployment uses the last saved version) and use Deploy > Manage deployments > edit > Version: "New version".
+That keeps the same web app URL. Archive old deployments you no longer use, as they keep serving the code they were made with.
 
 The response is JSON, with the events already sorted and formatted for the display:
 {"events":[{"time":"Mon 19 Oct 10:00","title":"Dentist","allDay":false}, ...]}

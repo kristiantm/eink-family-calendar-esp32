@@ -69,5 +69,5 @@ const float batteryR2 = 100;  // kOhm, between the pin and GND
 const float batteryFullVoltage = 4.1;   // Shown as 100%
 const float batteryEmptyVoltage = 3.5;  // Shown as 0% - the calendar then stops waking up to protect the LIPO
 
-// Daily greetings in hte top line - change "Happy" with something else for variation on your week :)
+// Daily greetings in the top line - change "Happy" with something else for variation on your week :)
 const char * weekday[] = { "Happy Sunday", "Happy Monday", "Happy Tuesday", "Happy Wednesday", "Happy Thursday", "Happy Friday", "Happy Saturday"};
