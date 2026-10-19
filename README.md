@@ -40,12 +40,12 @@ Pin-setup:
 
 1. Go to [script.google.com](https://script.google.com), create a new project and paste in `googleScript.gs`.
 2. Check that Project Settings has "Enable Chrome V8 runtime" ticked - Google turned off the old Rhino runtime in January 2026, and scripts still on it no longer run.
-3. Optional, but recommended: set `SCRIPT_KEY` in the script to a random text (letters and digits). Without it, anyone who knows the URL can read your calendar entries.
+3. Optional, but recommended: set `SCRIPT_KEY` at the top of the script to a random text (letters and digits). Without it, anyone who knows the URL can read your calendar entries. Alternatively, leave it empty and add it under Project Settings > Script Properties as a property named `SCRIPT_KEY` - then you can paste in new versions of the script without editing them. If both are set, the one in the script is used.
 4. Deploy > New deployment > Web app, execute as "Me", access "Anyone". Copy the web app URL.
 
 When you change the script later: save it (Ctrl+S) first, as a deployment uses the last saved version. Then use Deploy > Manage deployments > edit (pencil) > Version: "New version" - that keeps the same URL, so the calendar needs no change. Archive old deployments you no longer use, as they keep serving the code they were made with - including an old script without a key.
 
-The script returns the next events from all calendars you have selected in Google Calendar, as JSON.
+The script returns the next events from all calendars you have selected in Google Calendar, as JSON. The weekday and month names follow `calendarLanguage` in `include/credentials.h` (e.g. "de" or "da") - the script needs no changes. The display fonts only have plain ASCII characters, so letters like æ, ø, å and ä are spelled out (e.g. "Dalsgaard", "Maerz").
 
 **2. The firmware**
 
@@ -53,7 +53,7 @@ The project is built with [PlatformIO](https://platformio.org). It uses the comm
 
 The platform needs **PlatformIO Core 6.2.0 or newer** - check with `pio --version`. On Windows, `pio upgrade` can fail because `pio.exe` is in use; run `python -m pip install -U platformio` from the PlatformIO Python environment instead (`%USERPROFILE%\.platformio\penv\Scripts\python.exe`). Build from PowerShell, CMD or VS Code - the first build installs the compiler, and that installer refuses to run from Git Bash/MSYS. Then build and upload with `pio run -t upload`.
 
-`include/credentials.h` has the settings that rarely change: timezone (default Denmark/Central Europe), the hour the calendar refreshes (5 in the morning), layout, fonts and the battery measurement. If your screen or pins differ from the table above, adjust the lines under "Mapping of Waveshare ESP32 Driver Board" in `src/main.cpp`.
+`include/credentials.h` has the settings that rarely change: timezone (default Denmark/Central Europe), the language of the weekday and month names, the hour the calendar refreshes (5 in the morning), layout, fonts and the battery measurement. If your screen or pins differ from the table above, adjust the lines under "Mapping of Waveshare ESP32 Driver Board" in `src/main.cpp`.
 
 **3. Wifi and settings**
 

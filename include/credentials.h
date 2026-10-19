@@ -69,5 +69,9 @@ const float batteryR2 = 100;  // kOhm, between the pin and GND
 const float batteryFullVoltage = 4.1;   // Shown as 100%
 const float batteryEmptyVoltage = 3.5;  // Shown as 0% - the calendar then stops waking up to protect the LIPO
 
+// Language of the weekday and month names in the calendar entries, e.g. "en", "de" or "da" - the google script translates them
+const char* calendarLanguage = "en";
+
 // Daily greetings in the top line - change "Happy" with something else for variation on your week :)
+// Use plain ASCII letters only (e.g. "Loerdag" instead of the Danish o with a slash), as the fonts have no other characters
 const char * weekday[] = { "Happy Sunday", "Happy Monday", "Happy Tuesday", "Happy Wednesday", "Happy Thursday", "Happy Friday", "Happy Saturday"};
