@@ -322,6 +322,7 @@ bool getCalendar() {
   }
   url += (url.indexOf('?') < 0 ? "?" : "&");
   url += "max=" + String(calEntryCount);
+  url += "&lang=" + urlEncode(calendarLanguage);
   if (config.scriptKey.length() > 0) {
     url += "&key=" + urlEncode(config.scriptKey);
   }
